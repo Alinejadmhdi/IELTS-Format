@@ -18,6 +18,9 @@ export function collectQuestionNumbers(exam: ExamDocument): number[] {
           case "notes":
             for (const row of block.rows) collectFromParts(row.parts, nums);
             break;
+          case "flowChart":
+            for (const step of block.steps) collectFromParts(step.parts, nums);
+            break;
           case "example":
             collectFromParts(block.parts, nums);
             break;

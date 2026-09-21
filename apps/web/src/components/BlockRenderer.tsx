@@ -1,6 +1,7 @@
 import type { Block, ImageRef, MatchingHeadingsBlock } from "@ielts/schema";
 import { AnswerBox } from "./AnswerBox";
 import { MatchingFromBox } from "./MatchingFromBox";
+import { FlowChart } from "./FlowChart";
 import {
   HeadingDropSlot,
   MatchingHeadingsList,
@@ -93,6 +94,19 @@ export function BlockRenderer({
             ))}
           </dl>
         </div>
+      );
+
+    case "flowChart":
+      return (
+        <FlowChart
+          block={block}
+          blockKey={blockKey}
+          answers={answers}
+          onAnswer={onAnswer}
+          highlights={highlights}
+          onAddHighlight={onAddHighlight}
+          marks={marks}
+        />
       );
 
     case "example":

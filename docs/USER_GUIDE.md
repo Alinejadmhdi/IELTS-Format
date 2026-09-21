@@ -77,6 +77,7 @@ You can open the same panel anytime with the top-bar **API key** button, or via 
 - **Ctrl+Z** / **Ctrl+Y** undo/redo highlights (when not typing in a field)
 - Passage title, subtitle, illustration + caption, and footnotes are kept when the model finds them
 - “Which paragraph contains the following information?” uses paragraph-letter matching on the questions side (not heading drop-zones in the passage)
+- Flow-charts (“Complete the flow-chart below”) render as vertical steps with arrows
 - Under the exam: **Paragraph notes** + **Export paragraph notes**
 
 **Sample Listening** / **Sample Reading** work offline without the API.

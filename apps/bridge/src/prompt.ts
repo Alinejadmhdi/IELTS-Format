@@ -6,6 +6,7 @@ Schema:
 
 Block "type" values and shapes:
 - form|notes: {type,title?,rows:[{label?,isExample?,parts:TextPart[]}]}
+- flowChart: {type,title?,steps:[{parts:TextPart[]}]}
 - example: {type,label?,parts}
 - sentences: {type,items:[{questionNumber,parts}]}
 - table: {type,title?,headers?:string[],rows:[{cells:[{parts}]}]}
@@ -22,7 +23,15 @@ Block "type" values and shapes:
 TextPart: {"kind":"text","text":string} OR {"kind":"answer","questionNumber":number,"maxWords"?:number,"allowNumber"?:boolean,"width"?:"sm"|"md"|"lg"}
 questionNumber must be a positive integer (never null/NaN/string). Same number may appear twice if one printed Q has two blanks (e.g. "14 … and …").
 
-Flow-charts / process diagrams with numbered blanks: use notes (or form) rows — each step is a row whose parts alternate text + answer. Skip arrow-only lines. Example: {"type":"notes","title":"Stages in the extraction of olive oil","rows":[{"parts":[{"kind":"text","text":"extraction of oil from fruit "},{"kind":"answer","questionNumber":10,"maxWords":2},{"kind":"text","text":" after harvest"}]}]}
+Flow-charts ("Complete the flow-chart below", stages/process with ↓ arrows): MUST use type flowChart (not notes/form). Each vertical box is one step in steps[]; skip arrow-only lines; informational steps have only text parts. Example for olive-oil extraction:
+{"type":"flowChart","title":"Stages in the extraction of olive oil","steps":[
+  {"parts":[{"kind":"text","text":"extraction of oil from fruit "},{"kind":"answer","questionNumber":10,"maxWords":2},{"kind":"text","text":" after harvest"}]},
+  {"parts":[{"kind":"text","text":"cleaning of fruit and processing into paste, oil extracted"}]},
+  {"parts":[{"kind":"text","text":"oil classification dependent on "},{"kind":"answer","questionNumber":11,"maxWords":2},{"kind":"text","text":" and content of oleic acid"}]},
+  {"parts":[{"kind":"text","text":"refined olive oil using "},{"kind":"answer","questionNumber":12,"maxWords":2},{"kind":"text","text":" or solvent"}]},
+  {"parts":[{"kind":"text","text":"further processing necessary to produce oil for human use"}]},
+  {"parts":[{"kind":"answer","questionNumber":13,"maxWords":2},{"kind":"text","text":" source of oil for industry and animal "},{"kind":"answer","questionNumber":14,"maxWords":2},{"kind":"text","text":" and "},{"kind":"answer","questionNumber":14,"maxWords":2}]}
+]}
 
 CRITICAL — do not confuse these Reading match tasks:
 1) matchingInformation — paper says "Which paragraph contains the following information?" (often "paragraphs A–J"). items[] = the NUMBERED INFORMATION STATEMENTS exactly as printed (e.g. "the places where olive trees were supposedly grown first…"). paragraphs[] = answer letters A,B,C… Answers stay on the QUESTIONS side. NEVER put drop zones in the passage. NEVER use matchingHeadings for this.

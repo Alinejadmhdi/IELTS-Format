@@ -24,7 +24,8 @@ export function normalizeAnswer(raw: string): string {
     .toLowerCase()
     .replace(/[’‘]/g, "'")
     .replace(/[–—]/g, "-")
-    .replace(/[,.;:!?()[\]{}]/g, " ")
+    .replace(/\s*\|\s*/g, " ")
+    .replace(/[`,.;:!?()[\]{}]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 }

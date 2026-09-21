@@ -696,6 +696,65 @@ html[data-theme="dark"] .primary:hover {
   margin: 0.5rem 0 1rem;
 }
 
+.flow-chart-block {
+  margin: 0.75rem 0 1.25rem;
+  max-width: 36rem;
+}
+
+.flow-chart-title {
+  margin: 0 0 0.85rem;
+  text-align: center;
+  font-size: 1.05rem;
+  font-weight: 700;
+  font-family: var(--sans);
+}
+
+.flow-chart-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+}
+
+.flow-chart-step {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.flow-chart-node {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.65rem 0.85rem;
+  border: 1.5px solid var(--exam-line, #888);
+  border-radius: 4px;
+  background: #fff;
+  line-height: 1.75;
+  text-align: center;
+}
+
+.flow-chart-node .inline-parts {
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.flow-chart-arrow {
+  color: #444;
+  font-size: 1.25rem;
+  line-height: 1;
+  padding: 0.2rem 0;
+  user-select: none;
+}
+
+html[data-theme="dark"] .flow-chart-node {
+  background: #fff;
+  color: #111;
+  border-color: #888;
+}
+
 .form-rows {
   margin: 0;
 }

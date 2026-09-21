@@ -106,6 +106,21 @@ export const NotesBlockSchema = z.object({
   needsReview: z.boolean().optional(),
 });
 
+/**
+ * Flow-chart / process completion (Reading or Listening).
+ * Vertical steps connected by arrows; each step is inline text + answer blanks.
+ */
+export const FlowChartBlockSchema = z.object({
+  type: z.literal("flowChart"),
+  title: z.string().optional(),
+  steps: z.array(
+    z.object({
+      parts: z.array(TextPartSchema),
+    }),
+  ),
+  needsReview: z.boolean().optional(),
+});
+
 export const ExampleBlockSchema = z.object({
   type: z.literal("example"),
   label: z.string().optional(),
@@ -281,6 +296,7 @@ export const ClassifyBlockSchema = z.object({
 export const BlockSchema = z.discriminatedUnion("type", [
   FormBlockSchema,
   NotesBlockSchema,
+  FlowChartBlockSchema,
   ExampleBlockSchema,
   SentencesBlockSchema,
   TableBlockSchema,
@@ -329,6 +345,7 @@ export type MatchingHeadingsBlock = z.infer<typeof MatchingHeadingsBlockSchema>;
 export type MatchingInformationBlock = z.infer<
   typeof MatchingInformationBlockSchema
 >;
+export type FlowChartBlock = z.infer<typeof FlowChartBlockSchema>;
 export type QuestionGroup = z.infer<typeof QuestionGroupSchema>;
 export type Section = z.infer<typeof SectionSchema>;
 export type ExamDocument = z.infer<typeof ExamDocumentSchema>;
@@ -423,6 +440,24 @@ function sanitizeBlockDeep(block: Record<string, unknown>) {
         });
       }
       return r;
+    });
+  }
+  if (Array.isArray(block.steps)) {
+    block.steps = block.steps.map((step) => {
+      if (!step || typeof step !== "object") return { parts: [] };
+      const st = { ...(step as Record<string, unknown>) };
+      if (Array.isArray(st.parts)) st.parts = sanitizeTextParts(st.parts);
+      else if (Array.isArray(st.rows)) {
+        // mistaken nesting
+        st.parts = sanitizeTextParts(
+          (st.rows as unknown[]).flatMap((r) =>
+            r && typeof r === "object" && Array.isArray((r as { parts?: unknown }).parts)
+              ? (r as { parts: unknown[] }).parts
+              : [],
+          ),
+        );
+      } else st.parts = [];
+      return st;
     });
   }
   if (Array.isArray(block.items)) {
@@ -537,12 +572,54 @@ function normalizeExamInput(data: unknown): unknown {
           /which\s+paragraph\s+contains|contains\s+the\s+following\s+information/i.test(
             `${instr} ${heading}`,
           );
+        const looksLikeFlowChart =
+          /flow[\s-]?chart|complete the flow|stages in the/i.test(
+            `${instr} ${heading}`,
+          );
         const blocks = g.blocks;
         if (!Array.isArray(blocks)) continue;
         for (let bi = 0; bi < blocks.length; bi++) {
           const block = blocks[bi];
           if (!block || typeof block !== "object") continue;
           const b = block as Record<string, unknown>;
+
+          // Alias type names from models
+          if (
+            typeof b.type === "string" &&
+            /^(flowchart|flow_chart|flow-chart|processChart|process)$/i.test(b.type)
+          ) {
+            b.type = "flowChart";
+          }
+          if (b.type === "flowChart") {
+            if (!Array.isArray(b.steps) && Array.isArray(b.rows)) {
+              b.steps = (b.rows as unknown[]).map((row) => {
+                if (!row || typeof row !== "object") return { parts: [] };
+                const r = row as Record<string, unknown>;
+                return { parts: Array.isArray(r.parts) ? r.parts : [] };
+              });
+              delete b.rows;
+            }
+            if (!Array.isArray(b.steps)) b.steps = [];
+          }
+
+          // notes/form under a flow-chart group → flowChart
+          const blockTitle =
+            typeof b.title === "string" ? b.title.toLowerCase() : "";
+          if (
+            (looksLikeFlowChart ||
+              /stages in the|flow[\s-]?chart/i.test(blockTitle)) &&
+            (b.type === "notes" || b.type === "form") &&
+            Array.isArray(b.rows)
+          ) {
+            b.type = "flowChart";
+            b.steps = (b.rows as unknown[]).map((row) => {
+              if (!row || typeof row !== "object") return { parts: [] };
+              const r = row as Record<string, unknown>;
+              return { parts: Array.isArray(r.parts) ? r.parts : [] };
+            });
+            delete b.rows;
+          }
+
           sanitizeBlockDeep(b);
 
           if (b.type === "passage") {
