@@ -3,12 +3,17 @@ import {
   mergeRangesForBlock,
   type HighlightRange,
 } from "../lib/persistence";
+import { useTextSelectMode } from "./TextSelectModeContext";
+
+export type TextSelectMode = "highlight" | "copy";
 
 type Props = {
   blockKey: string;
   text: string;
   highlights: HighlightRange[];
   onAddHighlight: (h: Omit<HighlightRange, "id">) => void;
+  /** Overrides context when set; otherwise uses Highlight/Copy toolbar mode */
+  selectMode?: TextSelectMode;
   as?: "p" | "div" | "span" | "h2" | "h3" | "dt";
   className?: string;
 };
@@ -34,7 +39,6 @@ function applyHighlights(text: string, ranges: HighlightRange[]): Node[] {
     if (h.start > cursor) {
       nodes.push({ type: "text", value: text.slice(cursor, h.start) });
     }
-    // Slice from cursor so overlapping ranges never reprint earlier characters
     const from = Math.max(h.start, cursor);
     if (h.end > from) {
       nodes.push({ type: "mark", value: text.slice(from, h.end) });
@@ -65,12 +69,19 @@ export function HighlightableText({
   text,
   highlights,
   onAddHighlight,
+  selectMode: selectModeProp,
   as: Tag = "p",
   className,
 }: Props) {
   const ref = useRef<HTMLElement | null>(null);
+  const ctxMode = useTextSelectMode();
+  const selectMode = selectModeProp ?? ctxMode;
 
   const onMouseUp = useCallback(() => {
+    // Copy mode: leave the native selection alone so Ctrl/Cmd+C works;
+    // existing highlight marks stay painted.
+    if (selectMode === "copy") return;
+
     const sel = window.getSelection();
     if (!sel || sel.isCollapsed || !ref.current || sel.rangeCount === 0) return;
 
@@ -96,7 +107,7 @@ export function HighlightableText({
       text: selected,
     });
     sel.removeAllRanges();
-  }, [blockKey, onAddHighlight]);
+  }, [blockKey, onAddHighlight, selectMode]);
 
   const nodes = applyHighlights(
     text,
@@ -106,9 +117,13 @@ export function HighlightableText({
   return (
     <Tag
       ref={ref as never}
-      className={`highlightable ${className ?? ""}`}
+      className={`highlightable mode-${selectMode} ${className ?? ""}`}
       onMouseUp={onMouseUp}
-      title="Select text to highlight"
+      title={
+        selectMode === "copy"
+          ? "Select text to copy (highlights stay)"
+          : "Select text to highlight"
+      }
     >
       {nodes.map((n, i) =>
         n.type === "mark" ? (

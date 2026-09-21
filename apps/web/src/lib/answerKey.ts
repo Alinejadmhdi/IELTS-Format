@@ -160,11 +160,12 @@ export function parseAnswerKeyText(raw: string): {
   const warnings: string[] = [];
   const anyOrderGroups = parseAnyOrderGroups(raw);
 
-  // Strip section headers like "Questions 11-15" so range numbers are not answers
-  // Keep any-order lines for per-question fill from groups below
+  // Strip section headers like "Questions 11-15" / "Question 13" so those
+  // numbers are not treated as answers (and can't steal the next line via \s).
   let text = raw
     .replace(/\r/g, "")
     .replace(/questions?\s+\d+\s*[-–—to]+\s*\d+/gi, "\n")
+    .replace(/^[\t ]*questions?\s+\d+\s*[:.\-–—]?[\t ]*$/gim, "\n")
     .replace(/^(?:answers?|answer\s*key|listening|reading|section)\b.*$/gim, "\n");
 
   // Remove explicit any-order range lines so they don't create junk per-Q parses
@@ -173,20 +174,23 @@ export function parseAnswerKeyText(raw: string): {
     "\n",
   );
 
-  // Pass 1: compact letter / judgment answers anywhere (handles glued "14 A15 C", "19D20E")
+  // Pass 1: compact letter / judgment answers (same line only — never cross \n)
   const compactRe =
-    /(\d+)\s*(?:[.):\-–—]\s*)?(TRUE|FALSE|YES|NO|NOT\s+GIVEN|NG|[A-Ga-g])(?=\s*\d|\s*$|[^A-Za-z])/gi;
+    /(\d+)[^\S\n]*(?:[.):\-–—][^\S\n]*)?(TRUE|FALSE|YES|NO|NOT[^\S\n]+GIVEN|NG|[A-Ga-g])(?=[^\S\n]*\d|[^\S\n]*$|[^A-Za-z\n])/gi;
   for (const m of text.matchAll(compactRe)) {
-    addAnswer(key, Number(m[1]), m[2]);
+    addAnswer(key, Number(m[1]), m[2].replace(/\s+/g, " "));
   }
 
   // Pass 2: word / phrase answers
-  const startRe = /(\d+)\s*[.):\-–—]?\s*/g;
+  const startRe = /(\d+)[^\S\n]*[.):\-–—]?[^\S\n]*/g;
   const starts: Array<{ n: number; valueStart: number; index: number }> = [];
   for (const m of text.matchAll(startRe)) {
     const valueStart = m.index! + m[0].length;
     const nextChar = text[valueStart];
     if (nextChar === undefined || !/\S/.test(nextChar)) continue;
+    // Don't treat the bare number inside a leftover "Question N" header
+    const before = text.slice(Math.max(0, m.index! - 12), m.index!);
+    if (/questions?\s*$/i.test(before)) continue;
     starts.push({ n: Number(m[1]), valueStart, index: m.index! });
   }
 
@@ -197,8 +201,12 @@ export function parseAnswerKeyText(raw: string): {
 
     const end = i + 1 < starts.length ? starts[i + 1].index : text.length;
     let value = text.slice(cur.valueStart, end).trim();
+    // Keep to the current line for phrase answers (headers / next Q on new lines)
+    const nl = value.indexOf("\n");
+    if (nl >= 0) value = value.slice(0, nl).trim();
     value = value.replace(/^[:.\-–—)\s]+/, "").replace(/[,;\s]+$/g, "").trim();
     if (!value) continue;
+    if (/^questions?\b/i.test(value)) continue;
     if (/^(\d+\s*[A-Ga-g]\s*)+$/i.test(value)) continue;
     addAnswer(key, cur.n, value);
   }
@@ -207,6 +215,9 @@ export function parseAnswerKeyText(raw: string): {
   for (const line of text.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed) continue;
+    if (/^questions?\s+\d+\b/i.test(trimmed) && !/\d\s+[A-Za-z]/.test(trimmed)) {
+      continue;
+    }
     const match = trimmed.match(
       /^(?:q(?:uestion)?\s*)?(\d+)\s*[.):\-–—]?\s+(.+)$/i,
     );
@@ -216,7 +227,7 @@ export function parseAnswerKeyText(raw: string): {
     if (!rest) continue;
     const gluedOnLine = [
       ...rest.matchAll(
-        /(\d+)\s*(?:[.):\-–—]\s*)?(TRUE|FALSE|YES|NO|NOT\s+GIVEN|NG|[A-Ga-g])(?=\s*\d|\s*$|[^A-Za-z])/gi,
+        /(\d+)[^\S\n]*(?:[.):\-–—][^\S\n]*)?(TRUE|FALSE|YES|NO|NOT[^\S\n]+GIVEN|NG|[A-Ga-g])(?=[^\S\n]*\d|[^\S\n]*$|[^A-Za-z\n])/gi,
       ),
     ];
     if (gluedOnLine.length >= 1 && /^\s*[A-Ga-g]\s*\d/i.test(rest)) continue;

@@ -569,6 +569,7 @@ html[data-theme="dark"] .primary:hover {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.75rem;
   margin-bottom: 0.9rem;
   padding-bottom: 0.45rem;
@@ -576,11 +577,51 @@ html[data-theme="dark"] .primary:hover {
   font-size: 0.85rem;
 }
 
+.select-mode-toggle {
+  display: inline-flex;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.select-mode-toggle button {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--surface-soft, #f3efe6);
+  color: var(--muted);
+  padding: 0.28rem 0.7rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.select-mode-toggle button + button {
+  border-left: 1px solid var(--line);
+}
+
+.select-mode-toggle button.mode-active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.select-mode-toggle button:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  outline-offset: -2px;
+  z-index: 1;
+}
+
+.highlightable.mode-copy {
+  cursor: text;
+}
+
 .exam-toolbar .toolbar-actions {
   display: inline-flex;
   flex-wrap: wrap;
   gap: 0.75rem;
   align-items: center;
+  margin-left: auto;
 }
 
 .section-header {

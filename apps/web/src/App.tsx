@@ -5,6 +5,7 @@ import { ApiKeySetup } from "./components/ApiKeySetup";
 import { ConnectionStatus } from "./components/ConnectionStatus";
 import { Dropzone } from "./components/Dropzone";
 import { ExamView } from "./components/ExamView";
+import type { TextSelectMode } from "./components/HighlightableText";
 import { ParagraphNotesPanel } from "./components/ParagraphNotesPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import {
@@ -68,6 +69,7 @@ export default function App() {
   const [parsedKey, setParsedKey] = useState<AnswerKeyMap | null>(null);
   const [marks, setMarks] = useState<Record<string, MarkResult> | null>(null);
   const [keyError, setKeyError] = useState<string | null>(null);
+  const [selectMode, setSelectMode] = useState<TextSelectMode>("highlight");
 
   const refreshHealth = useCallback(async () => {
     setHealthChecking(true);
@@ -156,25 +158,27 @@ export default function App() {
       if (!mod || e.altKey) return;
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName?.toLowerCase();
-      if (
+      const inField =
         tag === "input" ||
         tag === "textarea" ||
         tag === "select" ||
-        target?.isContentEditable
-      ) {
-        return;
-      }
+        !!target?.isContentEditable;
+      // Inside answer boxes / key paste, keep native text undo.
+      // Everywhere else (including the exam paper), Ctrl/Cmd+Z undoes highlights.
+      if (inField) return;
       const key = e.key.toLowerCase();
       if (key === "z" && !e.shiftKey) {
         e.preventDefault();
+        e.stopPropagation();
         undoHighlight();
       } else if (key === "y" || (key === "z" && e.shiftKey)) {
         e.preventDefault();
+        e.stopPropagation();
         redoHighlight();
       }
     }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [undoHighlight, redoHighlight]);
 
   function hydrateExam(next: ExamDocument, urls?: string[]) {
@@ -371,11 +375,13 @@ export default function App() {
                   commitHighlights((prev) => addMergedHighlight(prev, h))
                 }
                 onClearHighlights={() => commitHighlights([])}
-                onUndoHighlight={undoHighlight}
-                canUndoHighlight={canUndoHighlight}
-                imageUrls={imageUrls}
-                marks={marks}
-              />
+              onUndoHighlight={undoHighlight}
+              canUndoHighlight={canUndoHighlight}
+              selectMode={selectMode}
+              onSelectModeChange={setSelectMode}
+              imageUrls={imageUrls}
+              marks={marks}
+            />
               {exam.module === "reading" && (
                 <ParagraphNotesPanel exam={exam} />
               )}

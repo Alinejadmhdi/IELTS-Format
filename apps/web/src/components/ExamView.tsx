@@ -16,8 +16,9 @@ import type {
   Section,
 } from "@ielts/schema";
 import { BlockRenderer } from "./BlockRenderer";
-import { HighlightableText } from "./HighlightableText";
+import { HighlightableText, type TextSelectMode } from "./HighlightableText";
 import { MatchingHeadingsProvider } from "./MatchingHeadings";
+import { TextSelectModeProvider } from "./TextSelectModeContext";
 import type { MarkResult } from "../lib/answerKey";
 import type { AnswersMap, HighlightRange } from "../lib/persistence";
 
@@ -30,6 +31,8 @@ type Props = {
   onClearHighlights: () => void;
   onUndoHighlight?: () => void;
   canUndoHighlight?: boolean;
+  selectMode: TextSelectMode;
+  onSelectModeChange: (mode: TextSelectMode) => void;
   imageUrls?: string[];
   marks?: Record<string, MarkResult> | null;
 };
@@ -90,6 +93,8 @@ export function ExamView({
   onClearHighlights,
   onUndoHighlight,
   canUndoHighlight,
+  selectMode,
+  onSelectModeChange,
   imageUrls,
   marks,
 }: Props) {
@@ -319,11 +324,31 @@ export function ExamView({
   }
 
   return (
+    <TextSelectModeProvider mode={selectMode}>
     <div className={`exam-paper module-${exam.module}`}>
       <div className="exam-toolbar">
+        <div className="select-mode-toggle" role="group" aria-label="Text selection mode">
+          <button
+            type="button"
+            className={selectMode === "highlight" ? "mode-active" : ""}
+            aria-pressed={selectMode === "highlight"}
+            onClick={() => onSelectModeChange("highlight")}
+          >
+            Highlight
+          </button>
+          <button
+            type="button"
+            className={selectMode === "copy" ? "mode-active" : ""}
+            aria-pressed={selectMode === "copy"}
+            onClick={() => onSelectModeChange("copy")}
+          >
+            Copy
+          </button>
+        </div>
         <span className="muted">
-          Select text to highlight ({highlights.length} active)
-          {onUndoHighlight ? " · Ctrl+Z undo" : ""}
+          {selectMode === "highlight"
+            ? `Select text to highlight (${highlights.length} active) · Ctrl+Z undo`
+            : `Select text to copy — highlights stay (${highlights.length} active)`}
         </span>
         <span className="toolbar-actions">
           {canUndoHighlight && onUndoHighlight && (
@@ -356,5 +381,6 @@ export function ExamView({
         ? renderReadingSplit()
         : renderLinear()}
     </div>
+    </TextSelectModeProvider>
   );
 }
