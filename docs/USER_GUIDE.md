@@ -124,6 +124,7 @@ npm run web      # Vite UI on http://127.0.0.1:5173/  (proxies /api → bridge)
 | Convert fails with high demand | Wait — the bridge retries / switches models automatically |
 | Empty response from vision API | Retry convert; bridge treats blank Gemini STOP as a flake and switches backup |
 | Matching info shows “Paragraph A–J” only | Re-convert after updating — that task is not matching headings |
+| Schema validation / `questionNumber` NaN | Restart bridge and re-convert — invalid blanks are sanitized; flow-charts use notes rows |
 | Samples work, convert fails | Check **API OK** after Recheck; confirm proxy if needed |
 
 ---

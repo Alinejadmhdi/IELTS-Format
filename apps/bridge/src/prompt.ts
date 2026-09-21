@@ -20,6 +20,9 @@ Block "type" values and shapes:
 - classify: {type,prompt?,categories:[{letter,text}],listTitle?,items:[{questionNumber,text}]}
 
 TextPart: {"kind":"text","text":string} OR {"kind":"answer","questionNumber":number,"maxWords"?:number,"allowNumber"?:boolean,"width"?:"sm"|"md"|"lg"}
+questionNumber must be a positive integer (never null/NaN/string). Same number may appear twice if one printed Q has two blanks (e.g. "14 … and …").
+
+Flow-charts / process diagrams with numbered blanks: use notes (or form) rows — each step is a row whose parts alternate text + answer. Skip arrow-only lines. Example: {"type":"notes","title":"Stages in the extraction of olive oil","rows":[{"parts":[{"kind":"text","text":"extraction of oil from fruit "},{"kind":"answer","questionNumber":10,"maxWords":2},{"kind":"text","text":" after harvest"}]}]}
 
 CRITICAL — do not confuse these Reading match tasks:
 1) matchingInformation — paper says "Which paragraph contains the following information?" (often "paragraphs A–J"). items[] = the NUMBERED INFORMATION STATEMENTS exactly as printed (e.g. "the places where olive trees were supposedly grown first…"). paragraphs[] = answer letters A,B,C… Answers stay on the QUESTIONS side. NEVER put drop zones in the passage. NEVER use matchingHeadings for this.

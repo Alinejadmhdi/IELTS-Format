@@ -1,5 +1,25 @@
 import { z } from "zod";
 
+/** Coerce model junk ("12", "Q12", null) into a finite positive int — never NaN. */
+export function parseQuestionNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value) && value > 0) {
+    return Math.trunc(value);
+  }
+  if (typeof value === "string") {
+    const m = value.trim().match(/(\d{1,3})/);
+    if (m) {
+      const n = Number(m[1]);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+  }
+  return undefined;
+}
+
+export const QuestionNumberSchema = z.preprocess((val) => {
+  const n = parseQuestionNumber(val);
+  return n ?? val;
+}, z.number().int().positive());
+
 export const WordLimitSchema = z.object({
   maxWords: z.number().optional(),
   allowNumber: z.boolean().optional(),
@@ -7,7 +27,7 @@ export const WordLimitSchema = z.object({
 });
 
 export const AnswerSlotSchema = z.object({
-  questionNumber: z.coerce.number(),
+  questionNumber: QuestionNumberSchema,
   maxWords: z.number().optional(),
   allowNumber: z.boolean().optional(),
   allowedValues: z.array(z.string()).optional(),
@@ -18,7 +38,7 @@ export const TextPartSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("text"), text: z.string() }),
   z.object({
     kind: z.literal("answer"),
-    questionNumber: z.coerce.number(),
+    questionNumber: QuestionNumberSchema,
     maxWords: z.number().optional(),
     allowNumber: z.boolean().optional(),
     allowedValues: z.array(z.string()).optional(),
@@ -38,13 +58,13 @@ export const OptionSchema = z.object({
 });
 
 export const McqQuestionSchema = z.object({
-  questionNumber: z.coerce.number(),
+  questionNumber: QuestionNumberSchema,
   stem: z.string(),
   options: z.array(OptionSchema),
 });
 
 export const LabelItemSchema = z.object({
-  questionNumber: z.coerce.number(),
+  questionNumber: QuestionNumberSchema,
   promptBefore: z.string().optional(),
   promptAfter: z.string().optional(),
   maxWords: z.number().optional(),
@@ -97,7 +117,7 @@ export const SentencesBlockSchema = z.object({
   type: z.literal("sentences"),
   items: z.array(
     z.object({
-      questionNumber: z.coerce.number(),
+      questionNumber: QuestionNumberSchema,
       parts: z.array(TextPartSchema),
     }),
   ),
@@ -149,7 +169,7 @@ export const MatchingFromBoxBlockSchema = z.object({
   itemsTitle: z.string().optional(),
   items: z.array(
     z.object({
-      questionNumber: z.coerce.number(),
+      questionNumber: QuestionNumberSchema,
       text: z.string(),
     }),
   ),
@@ -167,9 +187,9 @@ export const MatchingHeadingsBlockSchema = z.object({
   ),
   slots: z.array(
     z.object({
-      questionNumber: z.coerce.number(),
+      questionNumber: QuestionNumberSchema,
       /** 0-based index: drop zone appears before this paragraph in the passage. */
-      beforeParagraph: z.coerce.number(),
+      beforeParagraph: z.preprocess((v) => { const n = typeof v === "number" ? v : Number(v); return Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : v; }, z.number().int().nonnegative()),
     }),
   ),
   needsReview: z.boolean().optional(),
@@ -188,7 +208,7 @@ export const MatchingInformationBlockSchema = z.object({
   itemsTitle: z.string().optional(),
   items: z.array(
     z.object({
-      questionNumber: z.coerce.number(),
+      questionNumber: QuestionNumberSchema,
       text: z.string(),
     }),
   ),
@@ -197,10 +217,10 @@ export const MatchingInformationBlockSchema = z.object({
 
 export const MultiSelectLettersBlockSchema = z.object({
   type: z.literal("multiSelectLetters"),
-  selectCount: z.coerce.number(),
+  selectCount: z.preprocess((v) => { const n = parseQuestionNumber(v); return n ?? v; }, z.number().int().positive()),
   prompt: z.string(),
   options: z.array(OptionSchema),
-  questionNumbers: z.array(z.coerce.number()),
+  questionNumbers: z.array(QuestionNumberSchema),
   needsReview: z.boolean().optional(),
 });
 
@@ -227,7 +247,7 @@ const JudgmentFields = {
   key: z.array(z.object({ value: z.string(), meaning: z.string() })),
   statements: z.array(
     z.object({
-      questionNumber: z.coerce.number(),
+      questionNumber: QuestionNumberSchema,
       text: z.string(),
     }),
   ),
@@ -251,7 +271,7 @@ export const ClassifyBlockSchema = z.object({
   listTitle: z.string().optional(),
   items: z.array(
     z.object({
-      questionNumber: z.coerce.number(),
+      questionNumber: QuestionNumberSchema,
       text: z.string(),
     }),
   ),
@@ -332,6 +352,157 @@ export function stripNulls(value: unknown): unknown {
   return value;
 }
 
+/** Fix answer TextParts with missing/NaN questionNumbers before Zod runs. */
+export function sanitizeTextParts(parts: unknown): unknown[] {
+  if (!Array.isArray(parts)) return [];
+  const out: unknown[] = [];
+  for (const raw of parts) {
+    if (!raw || typeof raw !== "object") continue;
+    const p = { ...(raw as Record<string, unknown>) };
+    const kind = p.kind;
+    if (kind === "text") {
+      out.push({ kind: "text", text: String(p.text ?? "") });
+      continue;
+    }
+    // answer (or missing kind with questionNumber)
+    if (kind === "answer" || p.questionNumber != null || p.question_number != null) {
+      const n = parseQuestionNumber(p.questionNumber ?? p.question_number);
+      if (n == null) {
+        // Bad blank — keep as a visible gap, don't fail the whole exam
+        out.push({ kind: "text", text: "……" });
+        continue;
+      }
+      out.push({
+        kind: "answer",
+        questionNumber: n,
+        ...(typeof p.maxWords === "number" ? { maxWords: p.maxWords } : {}),
+        ...(typeof p.allowNumber === "boolean"
+          ? { allowNumber: p.allowNumber }
+          : {}),
+        ...(Array.isArray(p.allowedValues)
+          ? { allowedValues: p.allowedValues }
+          : {}),
+        ...(p.width === "sm" || p.width === "md" || p.width === "lg"
+          ? { width: p.width }
+          : {}),
+      });
+      continue;
+    }
+    if (typeof p.text === "string") {
+      out.push({ kind: "text", text: p.text });
+    }
+  }
+  return out;
+}
+
+function sanitizeQuestionNumberField(
+  obj: Record<string, unknown>,
+  key = "questionNumber",
+): boolean {
+  const n = parseQuestionNumber(obj[key]);
+  if (n == null) return false;
+  obj[key] = n;
+  return true;
+}
+
+function sanitizeBlockDeep(block: Record<string, unknown>) {
+  if (Array.isArray(block.parts)) {
+    block.parts = sanitizeTextParts(block.parts);
+  }
+  if (Array.isArray(block.rows)) {
+    block.rows = block.rows.map((row) => {
+      if (!row || typeof row !== "object") return row;
+      const r = { ...(row as Record<string, unknown>) };
+      if (Array.isArray(r.parts)) r.parts = sanitizeTextParts(r.parts);
+      if (Array.isArray(r.cells)) {
+        r.cells = r.cells.map((cell) => {
+          if (!cell || typeof cell !== "object") return cell;
+          const c = { ...(cell as Record<string, unknown>) };
+          if (Array.isArray(c.parts)) c.parts = sanitizeTextParts(c.parts);
+          return c;
+        });
+      }
+      return r;
+    });
+  }
+  if (Array.isArray(block.items)) {
+    block.items = block.items
+      .map((item) => {
+        if (!item || typeof item !== "object") return null;
+        const it = { ...(item as Record<string, unknown>) };
+        if (Array.isArray(it.parts)) it.parts = sanitizeTextParts(it.parts);
+        if ("questionNumber" in it || "question_number" in it) {
+          if (!sanitizeQuestionNumberField(it) && !sanitizeQuestionNumberField(it, "question_number")) {
+            return null;
+          }
+          if (it.question_number != null && it.questionNumber == null) {
+            it.questionNumber = it.question_number;
+            delete it.question_number;
+          }
+        }
+        if (typeof it.text !== "string" && !Array.isArray(it.parts)) {
+          it.text = String(it.text ?? it.information ?? "");
+        }
+        return it;
+      })
+      .filter(Boolean);
+  }
+  if (Array.isArray(block.statements)) {
+    block.statements = block.statements
+      .map((s) => {
+        if (!s || typeof s !== "object") return null;
+        const st = { ...(s as Record<string, unknown>) };
+        if (!sanitizeQuestionNumberField(st)) return null;
+        if (typeof st.text !== "string") st.text = String(st.text ?? "");
+        return st;
+      })
+      .filter(Boolean);
+  }
+  if (Array.isArray(block.questions)) {
+    block.questions = block.questions
+      .map((q) => {
+        if (!q || typeof q !== "object") return null;
+        const qq = { ...(q as Record<string, unknown>) };
+        if (!sanitizeQuestionNumberField(qq)) return null;
+        return qq;
+      })
+      .filter(Boolean);
+  }
+  if (Array.isArray(block.labels)) {
+    block.labels = block.labels
+      .map((l) => {
+        if (!l || typeof l !== "object") return null;
+        const lb = { ...(l as Record<string, unknown>) };
+        if (!sanitizeQuestionNumberField(lb)) return null;
+        return lb;
+      })
+      .filter(Boolean);
+  }
+  if (Array.isArray(block.slots)) {
+    block.slots = block.slots
+      .map((s) => {
+        if (!s || typeof s !== "object") return null;
+        const sl = { ...(s as Record<string, unknown>) };
+        if (!sanitizeQuestionNumberField(sl)) return null;
+        const bp = sl.beforeParagraph;
+        const n =
+          typeof bp === "number"
+            ? bp
+            : typeof bp === "string"
+              ? Number(bp)
+              : 0;
+        sl.beforeParagraph = Number.isFinite(n) ? Math.max(0, Math.trunc(n)) : 0;
+        return sl;
+      })
+      .filter(Boolean);
+  }
+  if (Array.isArray(block.questionNumbers)) {
+    block.questionNumbers = block.questionNumbers
+      .map((n) => parseQuestionNumber(n))
+      .filter((n): n is number => n != null);
+  }
+}
+
 function normalizeExamInput(data: unknown): unknown {
   const cleaned = stripNulls(data) as Record<string, unknown> | undefined;
   if (!cleaned || typeof cleaned !== "object") return data;
@@ -370,6 +541,7 @@ function normalizeExamInput(data: unknown): unknown {
           const block = blocks[bi];
           if (!block || typeof block !== "object") continue;
           const b = block as Record<string, unknown>;
+          sanitizeBlockDeep(b);
 
           if (b.type === "passage") {
             if (!b.subtitle && typeof b.subheading === "string") {
