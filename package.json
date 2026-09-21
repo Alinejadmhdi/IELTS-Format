@@ -1,0 +1,16 @@
+{
+  "name": "ielts-format",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "start": "node scripts/start.mjs",
+    "web": "npm run dev -w @ielts/web",
+    "bridge": "npm run dev -w @ielts/bridge",
+    "build": "npm run build -w @ielts/schema && npm run build -w @ielts/web && npm run build -w @ielts/bridge",
+    "typecheck": "npm run typecheck -w @ielts/schema && npm run typecheck -w @ielts/web && npm run typecheck -w @ielts/bridge"
+  }
+}

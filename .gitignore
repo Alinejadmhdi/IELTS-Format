@@ -1,0 +1,16 @@
+node_modules/
+**/node_modules/
+dist/
+**/dist/
+build/
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+apps/bridge/browser-state.json
+apps/bridge/.auth/
+.vite/
+**/coverage/
+*.tsbuildinfo
+.turbo/
