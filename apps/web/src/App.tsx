@@ -34,9 +34,15 @@ import {
 } from "./lib/persistence";
 import { listeningDemo } from "./lib/demos/listeningDemo";
 import { readingDemo } from "./lib/demos/readingDemo";
+import {
+  resolveTheme,
+  toggleTheme,
+  type Theme,
+} from "./lib/theme";
 
 export default function App() {
   const [settings, setSettings] = useState<Settings>(() => loadSettings());
+  const [theme, setTheme] = useState<Theme>(() => resolveTheme());
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [apiKeyOpen, setApiKeyOpen] = useState(false);
   const [apiKeyAutoShown, setApiKeyAutoShown] = useState(false);
@@ -186,6 +192,17 @@ export default function App() {
           </p>
         </div>
         <div className="top-actions">
+          <button
+            type="button"
+            className="ghost theme-toggle"
+            onClick={() => setTheme(toggleTheme(theme))}
+            aria-label={
+              theme === "dark" ? "Switch to light mode" : "Switch to dark mode"
+            }
+            title={theme === "dark" ? "Light mode" : "Dark mode"}
+          >
+            {theme === "dark" ? "Light" : "Dark"}
+          </button>
           <button
             type="button"
             className="ghost"

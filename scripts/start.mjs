@@ -60,10 +60,51 @@ function run(cmd, args, opts = {}) {
   });
 }
 
+function newestMtime(dir, filter) {
+  let newest = 0;
+  if (!fs.existsSync(dir)) return 0;
+  const stack = [dir];
+  while (stack.length) {
+    const cur = stack.pop();
+    for (const name of fs.readdirSync(cur)) {
+      const full = path.join(cur, name);
+      let st;
+      try {
+        st = fs.statSync(full);
+      } catch {
+        continue;
+      }
+      if (st.isDirectory()) {
+        if (name === "node_modules" || name === "dist" || name === ".git") continue;
+        stack.push(full);
+      } else if (!filter || filter(full)) {
+        newest = Math.max(newest, st.mtimeMs);
+      }
+    }
+  }
+  return newest;
+}
+
 async function ensureBuild() {
-  const indexHtml = path.join(root, "apps", "web", "dist", "index.html");
-  if (fs.existsSync(indexHtml)) return;
-  console.log("Building UI (first run)…");
+  const distIndex = path.join(root, "apps", "web", "dist", "index.html");
+  const webSrc = path.join(root, "apps", "web", "src");
+  const webPublic = path.join(root, "apps", "web", "public");
+  const webHtml = path.join(root, "apps", "web", "index.html");
+  const schemaSrc = path.join(root, "packages", "schema", "src");
+
+  const distTime = fs.existsSync(distIndex)
+    ? fs.statSync(distIndex).mtimeMs
+    : 0;
+  const srcTime = Math.max(
+    newestMtime(webSrc),
+    newestMtime(webPublic),
+    newestMtime(schemaSrc),
+    fs.existsSync(webHtml) ? fs.statSync(webHtml).mtimeMs : 0,
+  );
+
+  if (distTime && distTime >= srcTime) return;
+
+  console.log(distTime ? "Rebuilding UI (source changed)…" : "Building UI (first run)…");
   await run("npm", ["run", "build"]);
 }
 
