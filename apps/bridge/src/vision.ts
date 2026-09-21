@@ -47,6 +47,105 @@ export function extractJson(text: string): unknown {
   }
 }
 
+/** Flatten OpenAI / Gemini content that may be a string or part[] */
+export function normalizeMessageContent(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  const parts: string[] = [];
+  for (const part of content) {
+    if (typeof part === "string") {
+      parts.push(part);
+      continue;
+    }
+    if (!part || typeof part !== "object") continue;
+    const p = part as Record<string, unknown>;
+    if (typeof p.text === "string") parts.push(p.text);
+    else if (typeof p.content === "string") parts.push(p.content);
+  }
+  return parts.join("");
+}
+
+/**
+ * Pull assistant text out of an OpenAI-compat (or native candidates) body.
+ * Gemini often returns HTTP 200 + finish_reason=stop with empty/missing content —
+ * especially Flash-Lite — so callers must treat blank text as retryable.
+ */
+export function extractChatCompletionText(data: unknown): {
+  text: string;
+  finishReason: string;
+  diagnostic: string;
+} {
+  if (!data || typeof data !== "object") {
+    return { text: "", finishReason: "", diagnostic: "non-object body" };
+  }
+  const d = data as Record<string, unknown>;
+
+  const choices = d.choices;
+  if (Array.isArray(choices) && choices.length > 0) {
+    const c0 = choices[0] as Record<string, unknown>;
+    const finishReason = String(c0.finish_reason ?? c0.finishReason ?? "");
+    const msg = (c0.message ?? c0.delta ?? {}) as Record<string, unknown>;
+    const text =
+      normalizeMessageContent(msg.content) ||
+      normalizeMessageContent(msg.text) ||
+      normalizeMessageContent(c0.text) ||
+      (typeof msg.refusal === "string" ? msg.refusal : "");
+    const contentType = Array.isArray(msg.content)
+      ? "array"
+      : msg.content == null
+        ? "null"
+        : typeof msg.content;
+    return {
+      text,
+      finishReason,
+      diagnostic: `finish_reason=${finishReason || "?"} choices=${choices.length} content=${contentType}`,
+    };
+  }
+
+  // Native generateContent shape if a proxy ever forwards it
+  const candidates = d.candidates;
+  if (Array.isArray(candidates) && candidates.length > 0) {
+    const c0 = candidates[0] as Record<string, unknown>;
+    const finishReason = String(c0.finishReason ?? c0.finish_reason ?? "");
+    const content = c0.content as Record<string, unknown> | undefined;
+    const text = normalizeMessageContent(content?.parts ?? content?.text);
+    return {
+      text,
+      finishReason,
+      diagnostic: `native candidates finish_reason=${finishReason || "?"} parts=${Array.isArray(content?.parts) ? content.parts.length : 0}`,
+    };
+  }
+
+  const err = d.error;
+  if (err && typeof err === "object") {
+    const e = err as Record<string, unknown>;
+    return {
+      text: "",
+      finishReason: "",
+      diagnostic: `error=${String(e.message ?? e.status ?? "unknown").slice(0, 120)}`,
+    };
+  }
+
+  return {
+    text: "",
+    finishReason: "",
+    diagnostic: `no choices (keys=${Object.keys(d).slice(0, 8).join(",")})`,
+  };
+}
+
+function pickNextModelAfterEmpty(
+  models: string[],
+  currentIndex: number,
+): number {
+  if (models.length <= 1) return currentIndex;
+  // Walk forward; prefer a non-lite backup (empty STOP is common on *-lite)
+  for (let step = 1; step < models.length; step++) {
+    const i = (currentIndex + step) % models.length;
+    if (!/lite/i.test(models[i]!)) return i;
+  }
+  return (currentIndex + 1) % models.length;
+}
+
 function isHighDemandError(status: number, body: string): boolean {
   if (status === 429 || status === 503 || status === 502) return true;
   return /high\s*demand|overloaded|resource[_\s-]?exhausted|unavailable|try\s+again\s+later|too\s+many\s+requests|capacity|temporarily\s+(?:unavailable|out)|concurrent|rate\s*limit|quota.*(exceeded|exhausted)|UNAVAILABLE|RESOURCE_EXHAUSTED/i.test(
@@ -328,7 +427,7 @@ export async function parseViaOpenAICompatible(args: {
   useJsonFormat?: boolean;
 }): Promise<unknown> {
   const progress = args.onProgress ?? (() => undefined);
-  const useJsonFormat = args.useJsonFormat !== false;
+  let useJsonFormat = args.useJsonFormat !== false;
   let models = buildModelCandidates(args.model, args.baseUrl);
   let modelIndex = 0;
   let currentModel = models[modelIndex]!;
@@ -488,11 +587,15 @@ export async function parseViaOpenAICompatible(args: {
         }
       }
 
+      // Thinking models can burn the default budget on "thoughts" and return
+      // empty content — keep a generous cap for full IELTS exam JSON.
+      const maxTokens = Number(process.env.VISION_MAX_TOKENS ?? 16_384);
       const payload: Record<string, unknown> = {
         model: currentModel,
         messages: [{ role: "user", content }],
         stream: false,
         temperature: 0.1,
+        max_tokens: Number.isFinite(maxTokens) && maxTokens > 0 ? maxTokens : 16_384,
       };
       if (useJsonFormat) {
         payload.response_format = { type: "json_object" };
@@ -674,11 +777,73 @@ export async function parseViaOpenAICompatible(args: {
         "http",
         `Response received from ${currentModel} — repairing/parsing JSON if needed…`,
       );
-      const data = (await res.json()) as {
-        choices?: Array<{ message?: { content?: string } }>;
-      };
-      const text = data.choices?.[0]?.message?.content;
-      if (!text) throw new Error("Empty response from vision API");
+      const rawBody = await res.text();
+      let data: unknown;
+      try {
+        data = JSON.parse(rawBody) as unknown;
+      } catch {
+        throw new Error(
+          `Vision API returned non-JSON body: ${rawBody.slice(0, 240)}`,
+        );
+      }
+
+      const extracted = extractChatCompletionText(data);
+      const text = extracted.text.trim();
+
+      // Gemini flake: HTTP 200 + finish_reason=stop with empty/missing content
+      // (esp. flash-lite). Retry / switch — do not fail the whole convert.
+      if (!text) {
+        const detail = extracted.diagnostic || "blank content";
+        if (
+          attempt >= maxAttempts ||
+          Date.now() + 3_000 >= deadline
+        ) {
+          throw new Error(
+            `Empty response from vision API after ${attempt} attempt(s) ` +
+              `(last=${currentModel}; ${detail}). ` +
+              `Gemini sometimes returns STOP with no parts under load — retry convert, ` +
+              `or set LLM_MODEL to gemini-2.5-flash in Settings.`,
+          );
+        }
+
+        if (useJsonFormat) {
+          useJsonFormat = false;
+          progress(
+            "http",
+            `Empty output from ${currentModel} (${detail}) — dropping json mode and retrying…`,
+          );
+          const wait = clampWaitForJob(
+            googleBackoffMs(attempt),
+            deadline - Date.now(),
+            "capacity",
+          );
+          if (wait > 0) await sleep(wait);
+          continue;
+        }
+
+        const prev = currentModel;
+        if (models.length > 1) {
+          modelIndex = pickNextModelAfterEmpty(models, modelIndex);
+          currentModel = models[modelIndex]!;
+        }
+        const wait = clampWaitForJob(
+          googleBackoffMs(attempt),
+          deadline - Date.now(),
+          "capacity",
+        );
+        progress(
+          "http",
+          `Empty output from ${prev} (${detail}) — known Gemini flake; ` +
+            (prev !== currentModel
+              ? `switching → ${currentModel}`
+              : `retrying ${currentModel}`) +
+            (wait > 500 ? ` (pause ${Math.round(wait / 1000)}s)` : "") +
+            "…",
+        );
+        if (wait > 0) await sleep(wait);
+        continue;
+      }
+
       return extractJson(text);
     }
   } finally {
