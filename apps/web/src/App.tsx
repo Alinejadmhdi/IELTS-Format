@@ -9,6 +9,7 @@ import { SettingsPanel } from "./components/SettingsPanel";
 import {
   checkHealth,
   fileToDataUrl,
+  compressForVision,
   loadSettings,
   parseExamWithProgress,
   saveSettings,
@@ -226,20 +227,22 @@ export default function App() {
       id: "local",
       status: "queued",
       step: "prepare",
-      detail: "Preparing images…",
+      detail: "Compressing screenshots for vision…",
       log: [],
     });
     try {
-      const dataUrls =
-        previews[0]?.startsWith("data:") && previews.length === files.length
+      const dataUrls = await Promise.all(
+        (previews[0]?.startsWith("data:") && previews.length === files.length
           ? previews
-          : await Promise.all(files.map(fileToDataUrl));
+          : await Promise.all(files.map(fileToDataUrl))
+        ).map((src) => compressForVision(src)),
+      );
       setProgress((p) =>
         p
           ? {
               ...p,
               step: "upload",
-              detail: `Sending ${dataUrls.length} image(s) to bridge…`,
+              detail: `Sending ${dataUrls.length} compressed image(s) to bridge…`,
             }
           : p,
       );
@@ -344,9 +347,9 @@ export default function App() {
           </div>
           {error && <p className="error">{error}</p>}
           <p className="tip">
-            Select text in the paper to highlight (Ctrl+Z undoes). Convert can take
-            several minutes while the vision API reads the screenshots — watch the
-            status box above.
+            Select text to highlight (Ctrl+Z undoes). Convert compresses screenshots
+            and should finish within a few minutes — if it stalls, cancel and retry
+            with 1–2 pages at a time.
           </p>
         </section>
 

@@ -152,7 +152,7 @@ export async function parseExamWithProgress(args: {
   });
 
   const started = Date.now();
-  const maxMs = 60 * 60 * 1000;
+  const maxMs = 6 * 60 * 1000;
 
   while (Date.now() - started < maxMs) {
     if (args.signal?.aborted) throw new Error("Conversion cancelled");
@@ -164,7 +164,42 @@ export async function parseExamWithProgress(args: {
     }
     await new Promise((r) => setTimeout(r, 1200));
   }
-  throw new Error("Timed out waiting for convert job (60 minutes)");
+  throw new Error("Timed out waiting for convert job (6 minutes)");
+}
+
+/** Downscale screenshots so Gemini requests stay small and finish faster. */
+export async function compressForVision(
+  source: File | string,
+  opts?: { maxWidth?: number; quality?: number },
+): Promise<string> {
+  const maxWidth = opts?.maxWidth ?? 1600;
+  const quality = opts?.quality ?? 0.72;
+
+  const bitmap =
+    typeof source === "string"
+      ? await dataUrlToBitmap(source)
+      : await createImageBitmap(source);
+
+  try {
+    const scale = Math.min(1, maxWidth / bitmap.width);
+    const w = Math.max(1, Math.round(bitmap.width * scale));
+    const h = Math.max(1, Math.round(bitmap.height * scale));
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) throw new Error("Canvas unavailable for image compress");
+    ctx.drawImage(bitmap, 0, 0, w, h);
+    return canvas.toDataURL("image/jpeg", quality);
+  } finally {
+    bitmap.close();
+  }
+}
+
+async function dataUrlToBitmap(dataUrl: string): Promise<ImageBitmap> {
+  const res = await fetch(dataUrl);
+  const blob = await res.blob();
+  return createImageBitmap(blob);
 }
 
 export function fileToDataUrl(file: File): Promise<string> {

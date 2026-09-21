@@ -3,6 +3,13 @@ import os from "node:os";
 import path from "node:path";
 import { jsonrepair } from "jsonrepair";
 import { chromium, type Browser, type Locator, type Page } from "playwright";
+import {
+  classifyGeminiQuotaError,
+  clampWaitForJob,
+  freeTierRpmForModel,
+  googleBackoffMs,
+  minRequestGapMs,
+} from "./geminiQuota.js";
 import { IELTS_PARSE_PROMPT_CHAT } from "./prompt.js";
 
 export type ProgressFn = (step: string, detail?: string) => void;
@@ -47,13 +54,268 @@ function isHighDemandError(status: number, body: string): boolean {
   );
 }
 
-function backoffMs(attempt: number): number {
-  // 2s, 4s, 8s … capped at 45s
-  return Math.min(45_000, 2000 * 2 ** Math.min(attempt - 1, 5));
-}
-
 async function sleep(ms: number): Promise<void> {
   await new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * Primary failover: same/better quality vision models.
+ * Capacity failover: Flash-Lite still does image→text + structured JSON
+ * (Google positions it for classification / data extraction) — use last.
+ * @see https://ai.google.dev/gemini-api/docs/models/gemini-2.5-flash-lite
+ */
+const GEMINI_QUALITY_FALLBACKS = [
+  "gemini-2.5-pro",
+  "gemini-2.5-flash",
+  "gemini-2.0-flash",
+  "gemini-2.0-flash-001",
+];
+
+const GEMINI_CAPACITY_FALLBACKS = [
+  "gemini-2.5-flash-lite",
+  "gemini-2.0-flash-lite",
+  "gemini-flash-lite-latest",
+];
+
+/** Build ordered model list: primary → quality backups → lite capacity backups. */
+export function buildModelCandidates(primary: string, baseUrl: string): string[] {
+  const out: string[] = [];
+  const add = (m: string) => {
+    const id = m.trim().replace(/^models\//, "");
+    if (!id) return;
+    // Retired 1.5.* and nano 8B only — Flash-Lite is allowed (vision + structured out)
+    if (/^gemini-1\.5/i.test(id) || /flash-8b/i.test(id)) return;
+    if (out.some((x) => x.toLowerCase() === id.toLowerCase())) return;
+    out.push(id);
+  };
+
+  add(primary);
+
+  for (const m of (process.env.LLM_FALLBACK_MODELS ?? "").split(",")) {
+    add(m);
+  }
+
+  if (/generativelanguage\.googleapis/i.test(baseUrl)) {
+    if (/flash/i.test(primary) && !/lite/i.test(primary)) {
+      add("gemini-2.5-pro");
+    }
+    for (const m of GEMINI_QUALITY_FALLBACKS) add(m);
+    for (const m of GEMINI_CAPACITY_FALLBACKS) add(m);
+  }
+
+  return out;
+}
+
+function isModelMissingError(status: number, body: string): boolean {
+  if (status !== 404 && status !== 400) return false;
+  return /not\s+found|does\s+not\s+exist|invalid\s+model|NOT_FOUND|is not found for API|not supported for generateContent/i.test(
+    body,
+  );
+}
+
+async function listGeminiModelIds(
+  baseUrl: string,
+  apiKey: string,
+): Promise<string[] | null> {
+  try {
+    const res = await fetch(
+      geminiUrlWithKey(`${baseUrl.replace(/\/$/, "")}/models`, apiKey),
+      {
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "x-goog-api-key": apiKey,
+        },
+        signal: AbortSignal.timeout(12_000),
+      },
+    );
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      data?: Array<{ id?: string }>;
+      models?: Array<{ name?: string; id?: string }>;
+    };
+    const ids: string[] = [];
+    for (const m of data.data ?? []) {
+      if (m.id) ids.push(m.id.replace(/^models\//, ""));
+    }
+    for (const m of data.models ?? []) {
+      const raw = m.name || m.id;
+      if (raw) ids.push(raw.replace(/^models\//, ""));
+    }
+    return ids.length ? ids : null;
+  } catch {
+    return null;
+  }
+}
+
+function preferAvailableModels(
+  candidates: string[],
+  available: string[] | null,
+): string[] {
+  if (!available?.length) return candidates;
+  const availLower = available.map((a) => a.toLowerCase());
+  const isAvail = (c: string) => {
+    const cl = c.toLowerCase();
+    return availLower.some(
+      (a) => a === cl || a.endsWith(`/${cl}`) || a.includes(cl),
+    );
+  };
+  const matched = candidates.filter(isAvail);
+  const rest = candidates.filter((c) => !isAvail(c));
+  // Reorder only — never drop backups. ListModels via OpenAI compat is often incomplete
+  // (e.g. only returns the primary), which previously left a single-model list.
+  return matched.length ? [...matched, ...rest] : candidates;
+}
+
+/**
+ * Tiny text-only call (no screenshots) to see if a model is accepting traffic
+ * before we upload a multi‑MB vision payload.
+ */
+async function probeModelCapacity(args: {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+}): Promise<{ ok: boolean; status: number; body: string; headers: Headers }> {
+  const res = await fetch(
+    geminiUrlWithKey(
+      `${args.baseUrl.replace(/\/$/, "")}/chat/completions`,
+      args.apiKey,
+    ),
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${args.apiKey}`,
+        "x-goog-api-key": args.apiKey,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: args.model,
+        messages: [
+          {
+            role: "user",
+            content: "Reply with exactly the word ok",
+          },
+        ],
+        max_tokens: 8,
+        temperature: 0,
+        stream: false,
+      }),
+      signal: AbortSignal.timeout(20_000),
+    },
+  );
+  const body = await res.text();
+  return { ok: res.ok, status: res.status, body, headers: res.headers };
+}
+
+/**
+ * Walk candidates with a cheap preflight. Returns reordered list (ready first)
+ * and which models were marked busy/unavailable.
+ */
+async function preflightPickModels(args: {
+  baseUrl: string;
+  apiKey: string;
+  models: string[];
+  onProgress: ProgressFn;
+  rounds?: number;
+}): Promise<{ models: string[]; ready: string[]; skipped: string[] }> {
+  const rounds = args.rounds ?? 2;
+  let pool = [...args.models];
+  const skipped: string[] = [];
+  const ready: string[] = [];
+
+  for (let round = 1; round <= rounds && ready.length === 0 && pool.length; round++) {
+    args.onProgress(
+      "http",
+      `Preflight round ${round}/${rounds}: probing models with a tiny text request (no screenshots yet)…`,
+    );
+    const stillBusy: string[] = [];
+
+    for (const model of pool) {
+      args.onProgress(
+        "http",
+        `Preflight → ${model} (checking high-demand / quota before upload)…`,
+      );
+      let result: Awaited<ReturnType<typeof probeModelCapacity>>;
+      try {
+        result = await probeModelCapacity({
+          baseUrl: args.baseUrl,
+          apiKey: args.apiKey,
+          model,
+        });
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        args.onProgress(
+          "http",
+          `Preflight ${model} network error (${msg.slice(0, 60)}) — trying next…`,
+        );
+        stillBusy.push(model);
+        continue;
+      }
+
+      if (result.ok) {
+        ready.push(model);
+        args.onProgress(
+          "http",
+          `Preflight OK — ${model} is accepting requests. Will upload screenshots to this model first.`,
+        );
+        // Keep probing a couple backups so we have a warm failover list
+        if (ready.length >= 2) break;
+        continue;
+      }
+
+      if (isModelMissingError(result.status, result.body)) {
+        skipped.push(model);
+        args.onProgress(
+          "http",
+          `Preflight: ${model} not found — removed from list.`,
+        );
+        continue;
+      }
+
+      if (isHighDemandError(result.status, result.body)) {
+        const advice = classifyGeminiQuotaError(
+          result.status,
+          result.body,
+          result.headers,
+          round,
+        );
+        stillBusy.push(model);
+        args.onProgress(
+          "http",
+          `Preflight: ${model} busy (${advice.kind}, HTTP ${result.status}) — skipping before upload.`,
+        );
+        continue;
+      }
+
+      stillBusy.push(model);
+      args.onProgress(
+        "http",
+        `Preflight: ${model} HTTP ${result.status} — trying next…`,
+      );
+    }
+
+    pool = stillBusy;
+    if (ready.length === 0 && pool.length && round < rounds) {
+      const wait = clampWaitForJob(
+        googleBackoffMs(round + 1),
+        45_000,
+        "capacity",
+      );
+      args.onProgress(
+        "http",
+        `All probed models busy — waiting ${Math.round(wait / 1000)}s then re-checking (still no screenshot upload)…`,
+      );
+      await sleep(wait);
+    }
+  }
+
+  // Ready models first, then any remaining (last resort)
+  const remaining = args.models.filter(
+    (m) =>
+      !ready.includes(m) &&
+      !skipped.some((s) => s.toLowerCase() === m.toLowerCase()),
+  );
+  const ordered = [...ready, ...remaining];
+  return { models: ordered.length ? ordered : args.models, ready, skipped };
 }
 
 export async function parseViaOpenAICompatible(args: {
@@ -67,13 +329,75 @@ export async function parseViaOpenAICompatible(args: {
 }): Promise<unknown> {
   const progress = args.onProgress ?? (() => undefined);
   const useJsonFormat = args.useJsonFormat !== false;
-  progress("http", `Calling vision API (${args.model}) at ${args.baseUrl}…`);
+  let models = buildModelCandidates(args.model, args.baseUrl);
+  let modelIndex = 0;
+  let currentModel = models[modelIndex]!;
 
   if (!args.apiKey || /paste-your|sk-qwen$|changeme|your-.*-key/i.test(args.apiKey)) {
     throw new Error(
       "No real API key in .env (LLM_API_KEY). Prefer a free Gemini key from https://aistudio.google.com/apikey — see docs/USER_GUIDE.md",
     );
   }
+
+  if (/generativelanguage\.googleapis/i.test(args.baseUrl)) {
+    progress("http", "Checking which Gemini models your key can use…");
+    const available = await listGeminiModelIds(args.baseUrl, args.apiKey);
+    if (available?.length) {
+      const filtered = preferAvailableModels(models, available);
+      if (filtered.length) {
+        models = filtered;
+        modelIndex = 0;
+        currentModel = models[0]!;
+        progress(
+          "http",
+          `Model preference order (available first): ${models.slice(0, 6).join(", ")}${models.length > 6 ? "…" : ""}`,
+        );
+      }
+    }
+
+    // Cheap text-only probes — never upload screenshots to a 503 model first.
+    const pre = await preflightPickModels({
+      baseUrl: args.baseUrl,
+      apiKey: args.apiKey,
+      models,
+      onProgress: progress,
+    });
+    models = pre.models;
+    modelIndex = 0;
+    currentModel = models[0]!;
+    if (!pre.ready.length) {
+      progress(
+        "http",
+        `Preflight: no model was free (skipped busy: ${pre.skipped.concat(models).slice(0, 6).join(", ") || "all"}). Will still try with pacing — expect capacity errors if Google stays overloaded.`,
+      );
+    } else {
+      progress(
+        "http",
+        `Preflight ready order: ${pre.ready.join(" → ")}` +
+          (pre.skipped.length
+            ? ` (removed: ${pre.skipped.join(", ")})`
+            : ""),
+      );
+    }
+  }
+
+  progress(
+    "http",
+    `Selected ${currentModel} for vision upload` +
+      (models.length > 1
+        ? ` — failover: ${models.slice(1).join(", ")}`
+        : "") +
+      "…",
+  );
+
+  const approxMb = (
+    args.images.reduce((n, u) => n + u.length, 0) /
+    (1024 * 1024)
+  ).toFixed(1);
+  progress(
+    "http",
+    `Now uploading screenshots (~${approxMb} MB, ${args.images.length} image(s)) to ${currentModel}…`,
+  );
 
   const content: Array<Record<string, unknown>> = [
     {
@@ -86,37 +410,108 @@ export async function parseViaOpenAICompatible(args: {
   }
 
   const started = Date.now();
-  const tick = setInterval(() => {
-    const s = Math.round((Date.now() - started) / 1000);
+  const maxAttempts = Math.max(
+    Number(process.env.VISION_MAX_ATTEMPTS ?? 6),
+    models.length + 2,
+  );
+  const requestTimeoutMs = Number(process.env.VISION_REQUEST_TIMEOUT_MS ?? 90_000);
+  // Allow room for Google free-tier RPM backoff (up to ~60s × a few tries)
+  const totalBudgetMs = Number(process.env.VISION_TOTAL_BUDGET_MS ?? 8 * 60_000);
+  const deadline = started + totalBudgetMs;
+  let attempt = 0;
+  const triedModels = new Set<string>();
+  const rpdExhausted = new Set<string>();
+  let lastRequestAt = 0;
+  const isGemini = /generativelanguage\.googleapis/i.test(args.baseUrl);
+
+  if (isGemini) {
     progress(
       "http",
-      `Still waiting for vision API… ${s}s (large screenshots can take 1–3 minutes)`,
+      `Quota plan (free-tier ballpark): ~${freeTierRpmForModel(currentModel)} RPM for ${currentModel}; spacing ≥${Math.round(minRequestGapMs(currentModel) / 1000)}s between calls. RPD is per-model and resets midnight PT.`,
     );
-  }, 4000);
-
-  const payload: Record<string, unknown> = {
-    model: args.model,
-    messages: [{ role: "user", content }],
-    stream: false,
-    temperature: 0.1,
-  };
-  if (useJsonFormat) {
-    payload.response_format = { type: "json_object" };
   }
 
-  let attempt = 0;
+  const tick = setInterval(() => {
+    const s = Math.round((Date.now() - started) / 1000);
+    const left = Math.max(0, Math.round((deadline - Date.now()) / 1000));
+    progress(
+      "http",
+      `Still waiting… ${s}s elapsed, ~${left}s left · model=${currentModel} · attempt ${Math.max(1, attempt)}`,
+    );
+  }, 3000);
+
   try {
     for (;;) {
       attempt += 1;
+      const remaining = deadline - Date.now();
+      if (attempt > maxAttempts || remaining < 5_000) {
+        throw new Error(
+          `Vision API timed out after ${attempt - 1} attempt(s) / ${Math.round((Date.now() - started) / 1000)}s` +
+            ` (tried: ${[...triedModels].join(", ") || currentModel}). ` +
+            `If RPD was exhausted, wait until midnight Pacific or enable billing in AI Studio.`,
+        );
+      }
+
+      // Skip models that already hit daily quota this job
+      if (rpdExhausted.size && rpdExhausted.size < models.length) {
+        let guarded = 0;
+        while (
+          rpdExhausted.has((models[modelIndex] ?? "").toLowerCase()) &&
+          guarded < models.length
+        ) {
+          modelIndex = (modelIndex + 1) % models.length;
+          guarded += 1;
+        }
+      }
+      if (models.every((m) => rpdExhausted.has(m.toLowerCase()))) {
+        throw new Error(
+          `Daily Gemini quota (RPD) exhausted on all tried models (${[...rpdExhausted].join(", ")}). Quotas reset at midnight Pacific Time — check AI Studio → Rate limits.`,
+        );
+      }
+
+      currentModel = models[modelIndex] ?? currentModel;
+      triedModels.add(currentModel);
+
+      // Respect free-tier RPM by spacing requests
+      if (isGemini && lastRequestAt > 0) {
+        const gap = minRequestGapMs(currentModel);
+        const since = Date.now() - lastRequestAt;
+        if (since < gap) {
+          const pause = Math.min(gap - since, Math.max(0, remaining - 5_000));
+          if (pause > 200) {
+            progress(
+              "http",
+              `RPM pacing (~${freeTierRpmForModel(currentModel)}/min) — waiting ${Math.round(pause / 1000)}s before next call…`,
+            );
+            await sleep(pause);
+          }
+        }
+      }
+
+      const payload: Record<string, unknown> = {
+        model: currentModel,
+        messages: [{ role: "user", content }],
+        stream: false,
+        temperature: 0.1,
+      };
+      if (useJsonFormat) {
+        payload.response_format = { type: "json_object" };
+      }
+
       progress(
         "http",
         attempt === 1
-          ? `Uploading ${args.images.length} image(s) + prompt${useJsonFormat ? " (json mode)" : ""}…`
-          : `Retry #${attempt} after high-demand / overload…`,
+          ? `Uploading ${args.images.length} image(s) via ${currentModel}${useJsonFormat ? " (json mode)" : ""}…`
+          : `Attempt ${attempt}/${maxAttempts} with ${currentModel} (~${Math.round((deadline - Date.now()) / 1000)}s budget)…`,
       );
 
       let res: Response;
       try {
+        const thisTimeout = Math.min(
+          requestTimeoutMs,
+          Math.max(10_000, deadline - Date.now()),
+        );
+        lastRequestAt = Date.now();
         res = await fetch(
           geminiUrlWithKey(
             `${args.baseUrl.replace(/\/$/, "")}/chat/completions`,
@@ -130,23 +525,39 @@ export async function parseViaOpenAICompatible(args: {
               "Content-Type": "application/json",
             },
             body: JSON.stringify(payload),
-            signal: AbortSignal.timeout(8 * 60 * 1000),
+            signal: AbortSignal.timeout(thisTimeout),
           },
         );
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e);
-        // Network blips / timeouts during overload — keep trying
         if (
-          /timeout|network|fetch failed|ECONNRESET|ETIMEDOUT|socket|UND_ERR/i.test(
+          /timeout|aborted|network|fetch failed|ECONNRESET|ETIMEDOUT|socket|UND_ERR/i.test(
             msg,
           )
         ) {
-          const wait = backoffMs(attempt);
+          if (attempt >= maxAttempts || Date.now() + 2000 >= deadline) {
+            throw new Error(
+              `Vision API request failed (${msg.slice(0, 120)}). Gave up after ${attempt} attempt(s) on ${[...triedModels].join(", ")}.`,
+            );
+          }
+          if (modelIndex < models.length - 1) {
+            modelIndex += 1;
+            progress(
+              "http",
+              `Timeout on ${currentModel} — switching backup → ${models[modelIndex]}…`,
+            );
+          }
+          const advice = classifyGeminiQuotaError(503, msg, null, attempt);
+          const wait = clampWaitForJob(
+            advice.waitMs,
+            deadline - Date.now(),
+            advice.kind,
+          );
           progress(
             "http",
-            `Vision API network error (${msg.slice(0, 80)}) — retrying in ${Math.round(wait / 1000)}s…`,
+            `Network/timeout — retrying in ${Math.round(wait / 1000)}s…`,
           );
-          await sleep(wait);
+          if (wait > 0) await sleep(wait);
           continue;
         }
         throw e;
@@ -161,13 +572,94 @@ export async function parseViaOpenAICompatible(args: {
           progress("http", "Provider rejected json mode — retrying without it…");
           return parseViaOpenAICompatible({ ...args, useJsonFormat: false });
         }
-        if (isHighDemandError(res.status, body)) {
-          const wait = backoffMs(attempt);
+
+        if (isModelMissingError(res.status, body)) {
+          const prev = currentModel;
+          models = models.filter(
+            (m) => m.toLowerCase() !== prev.toLowerCase(),
+          );
+          if (!models.length) {
+            throw new Error(
+              `No usable Gemini vision model left (last tried ${prev}). ` +
+                `Set LLM_MODEL in AI Studio (e.g. gemini-2.5-flash or gemini-2.5-pro). Body: ${body.slice(0, 220)}`,
+            );
+          }
+          modelIndex = Math.min(modelIndex, models.length - 1);
           progress(
             "http",
-            `Gemini high demand / overloaded (HTTP ${res.status}) — retrying in ${Math.round(wait / 1000)}s (attempt ${attempt})…`,
+            `Model ${prev} not found — skipping to ${models[modelIndex]}…`,
           );
-          await sleep(wait);
+          continue;
+        }
+
+        if (isHighDemandError(res.status, body)) {
+          const advice = classifyGeminiQuotaError(
+            res.status,
+            body,
+            res.headers,
+            attempt,
+          );
+
+          if (advice.kind === "rpd") {
+            rpdExhausted.add(currentModel.toLowerCase());
+          }
+
+          if (advice.switchModel && models.length > 1) {
+            const prev = currentModel;
+            // Find next model that still has daily quota
+            let next = (modelIndex + 1) % models.length;
+            let guarded = 0;
+            while (
+              rpdExhausted.has(models[next]!.toLowerCase()) &&
+              guarded < models.length
+            ) {
+              next = (next + 1) % models.length;
+              guarded += 1;
+            }
+            if (
+              !rpdExhausted.has(models[next]!.toLowerCase()) &&
+              models[next]!.toLowerCase() !== prev.toLowerCase()
+            ) {
+              modelIndex = next;
+              const wait = clampWaitForJob(
+                advice.waitMs,
+                deadline - Date.now(),
+                advice.kind,
+              );
+              progress(
+                "http",
+                `${advice.detail} ${prev} → ${models[modelIndex]}` +
+                  (wait > 500 ? ` (pause ${Math.round(wait / 1000)}s)` : ""),
+              );
+              if (wait > 0) await sleep(wait);
+              continue;
+            }
+          }
+
+          if (
+            advice.stop ||
+            attempt >= maxAttempts ||
+            Date.now() + 2000 >= deadline ||
+            (advice.kind === "rpd" && rpdExhausted.size >= models.length)
+          ) {
+            throw new Error(
+              `Gemini quota blocked convert after ${attempt} attempt(s) ` +
+                `(kind=${advice.kind}, tried ${[...triedModels].join(", ")}). ` +
+                `Free-tier RPD resets midnight Pacific; RPM/TPM need short waits. ` +
+                `See https://ai.google.dev/gemini-api/docs/rate-limits — Body: ${body.slice(0, 180)}`,
+            );
+          }
+
+          const wait = clampWaitForJob(
+            advice.waitMs,
+            deadline - Date.now(),
+            advice.kind,
+          );
+          progress(
+            "http",
+            `${advice.detail} retrying ${currentModel} in ${Math.round(wait / 1000)}s…`,
+          );
+          if (wait > 0) await sleep(wait);
           continue;
         }
         if (res.status === 403) {
@@ -178,7 +670,10 @@ export async function parseViaOpenAICompatible(args: {
         throw new Error(`Vision API HTTP ${res.status}: ${body.slice(0, 500)}`);
       }
 
-      progress("http", "Response received — repairing/parsing JSON if needed…");
+      progress(
+        "http",
+        `Response received from ${currentModel} — repairing/parsing JSON if needed…`,
+      );
       const data = (await res.json()) as {
         choices?: Array<{ message?: { content?: string } }>;
       };
