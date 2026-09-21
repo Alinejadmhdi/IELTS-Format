@@ -5,6 +5,7 @@ import { ApiKeySetup } from "./components/ApiKeySetup";
 import { ConnectionStatus } from "./components/ConnectionStatus";
 import { Dropzone } from "./components/Dropzone";
 import { ExamView } from "./components/ExamView";
+import { ParagraphNotesPanel } from "./components/ParagraphNotesPanel";
 import { SettingsPanel } from "./components/SettingsPanel";
 import {
   checkHealth,
@@ -263,7 +264,9 @@ export default function App() {
   }
 
   return (
-    <div className="app-shell">
+    <div
+      className={`app-shell ${exam?.module === "reading" ? "reading-shell" : ""}`}
+    >
       <header className="topbar">
         <div>
           <p className="brand">IELTS Format</p>
@@ -355,23 +358,28 @@ export default function App() {
 
         <section className="right-col">
           {exam ? (
-            <ExamView
-              exam={exam}
-              answers={answers}
-              onAnswer={(n, v) => {
-                setAnswers((prev) => ({ ...prev, [answerKey(n)]: v }));
-                setMarks(null);
-              }}
-              highlights={highlights}
-              onAddHighlight={(h) =>
-                commitHighlights((prev) => addMergedHighlight(prev, h))
-              }
-              onClearHighlights={() => commitHighlights([])}
-              onUndoHighlight={undoHighlight}
-              canUndoHighlight={canUndoHighlight}
-              imageUrls={imageUrls}
-              marks={marks}
-            />
+            <>
+              <ExamView
+                exam={exam}
+                answers={answers}
+                onAnswer={(n, v) => {
+                  setAnswers((prev) => ({ ...prev, [answerKey(n)]: v }));
+                  setMarks(null);
+                }}
+                highlights={highlights}
+                onAddHighlight={(h) =>
+                  commitHighlights((prev) => addMergedHighlight(prev, h))
+                }
+                onClearHighlights={() => commitHighlights([])}
+                onUndoHighlight={undoHighlight}
+                canUndoHighlight={canUndoHighlight}
+                imageUrls={imageUrls}
+                marks={marks}
+              />
+              {exam.module === "reading" && (
+                <ParagraphNotesPanel exam={exam} />
+              )}
+            </>
           ) : (
             <div className="empty-exam">
               <p>No exam loaded yet.</p>

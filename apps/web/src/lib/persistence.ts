@@ -34,11 +34,17 @@ export function savePersisted(state: PersistedState) {
 export function clearPersistedForExam(examId: string) {
   const base = examId.replace(/__attempt-\d+$/, "");
   const prefix = `ielts-format:${base}`;
+  const notesPrefix = `ielts-format:para-notes:${base}`;
   const toRemove: string[] = [];
   for (let i = 0; i < localStorage.length; i++) {
     const k = localStorage.key(i);
     if (!k) continue;
-    if (k === prefix || k.startsWith(`${prefix}__attempt-`)) {
+    if (
+      k === prefix ||
+      k.startsWith(`${prefix}__attempt-`) ||
+      k === notesPrefix ||
+      k.startsWith(`${notesPrefix}__attempt-`)
+    ) {
       toRemove.push(k);
     }
   }
