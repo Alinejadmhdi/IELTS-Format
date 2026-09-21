@@ -14,6 +14,29 @@ import {
   geminiUrlWithKey,
 } from "./vision.js";
 
+/** Short shape hint for schema errors (helps debug truncated / odd model JSON). */
+function summarizeExamShape(raw: unknown): string {
+  if (!raw || typeof raw !== "object") return `Got ${typeof raw}.`;
+  const doc = raw as Record<string, unknown>;
+  const sections = doc.sections;
+  if (!Array.isArray(sections)) {
+    return `Top keys: ${Object.keys(doc).slice(0, 12).join(", ") || "(none)"}.`;
+  }
+  if (!sections.length) return "sections=[].";
+  const s0 = sections[0];
+  if (!s0 || typeof s0 !== "object") return "sections[0] is not an object.";
+  const sec = s0 as Record<string, unknown>;
+  const keys = Object.keys(sec).slice(0, 14).join(", ");
+  const groups = sec.groups;
+  if (groups == null) {
+    return `sections[0] keys={${keys}} (groups missing/null).`;
+  }
+  if (!Array.isArray(groups)) {
+    return `sections[0].groups is ${typeof groups}.`;
+  }
+  return `sections[0] has ${groups.length} group(s); keys={${keys}}.`;
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT_ENV = path.resolve(__dirname, "../../../.env");
 dotenv.config({ path: ROOT_ENV });
@@ -532,7 +555,7 @@ async function runJob(
         job,
         "running",
         "repair",
-        `First validation failed (${parsed.error.issues[0]?.message ?? "schema"}) — normalizing…`,
+        `First validation failed (${parsed.error.issues[0]?.path.join(".") ?? "?"}: ${parsed.error.issues[0]?.message ?? "schema"}) — normalizing…`,
       );
       parsed = safeParseExamDocument(raw);
     }
@@ -541,8 +564,9 @@ async function runJob(
         .slice(0, 3)
         .map((i) => `${i.path.join(".")}: ${i.message}`)
         .join("; ");
+      const preview = summarizeExamShape(raw);
       throw new Error(
-        `Model JSON failed schema validation: ${issue}. Try Convert again, or use clearer screenshots.`,
+        `Model JSON failed schema validation: ${issue}. ${preview} Try Convert again, or use clearer screenshots.`,
       );
     }
     const exam = ensureReadingPassageFigures(parsed.data, images.length);

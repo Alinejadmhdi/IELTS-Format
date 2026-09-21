@@ -517,6 +517,8 @@ function normalizeExamInput(data: unknown): unknown {
     cleaned.module = "unknown";
   }
 
+  ensureSectionGroupShape(cleaned);
+
   // Passage field aliases + misclassified matching-information repair
   const sections = cleaned.sections;
   if (Array.isArray(sections)) {
@@ -565,6 +567,13 @@ function normalizeExamInput(data: unknown): unknown {
               typeof b.illustration === "object"
             ) {
               b.figure = b.illustration;
+            }
+            // Empty paragraphs crash UX — keep a stub
+            if (!Array.isArray(b.paragraphs)) b.paragraphs = [];
+            const paras = b.paragraphs as unknown[];
+            if (!paras.length) {
+              b.paragraphs = ["(Passage text missing — try Convert again.)"];
+              b.needsReview = true;
             }
             continue;
           }
@@ -659,6 +668,118 @@ function normalizeExamInput(data: unknown): unknown {
   }
 
   return cleaned;
+}
+
+/**
+ * Models often omit `groups`, put `blocks` on the section, use null groups
+ * (stripped by stripNulls), or rename the array. Rebuild a valid shape.
+ */
+function ensureSectionGroupShape(cleaned: Record<string, unknown>) {
+  if (!Array.isArray(cleaned.sections)) {
+    if (Array.isArray(cleaned.section)) {
+      cleaned.sections = cleaned.section;
+    } else if (Array.isArray(cleaned.groups) || Array.isArray(cleaned.blocks)) {
+      cleaned.sections = [
+        {
+          id: "sec-1",
+          heading:
+            typeof cleaned.title === "string" && cleaned.title.trim()
+              ? cleaned.title
+              : "Exam",
+          groups: Array.isArray(cleaned.groups)
+            ? cleaned.groups
+            : [
+                {
+                  id: "g1",
+                  blocks: cleaned.blocks,
+                },
+              ],
+        },
+      ];
+      delete cleaned.groups;
+      delete cleaned.blocks;
+    } else {
+      cleaned.sections = [];
+    }
+  }
+
+  cleaned.sections = (cleaned.sections as unknown[]).map((sec, si) => {
+    if (!sec || typeof sec !== "object") {
+      return {
+        id: `sec-${si + 1}`,
+        heading: `Section ${si + 1}`,
+        groups: [] as unknown[],
+      };
+    }
+    const s = { ...(sec as Record<string, unknown>) };
+    if (typeof s.id !== "string" || !s.id) s.id = `sec-${si + 1}`;
+    if (typeof s.heading !== "string" || !String(s.heading).trim()) {
+      s.heading =
+        (typeof s.title === "string" && s.title) ||
+        (typeof s.name === "string" && s.name) ||
+        `Section ${si + 1}`;
+    }
+
+    if (!Array.isArray(s.groups)) {
+      if (Array.isArray(s.questionGroups)) s.groups = s.questionGroups;
+      else if (Array.isArray(s.tasks)) s.groups = s.tasks;
+      else if (Array.isArray(s.parts)) s.groups = s.parts;
+      else if (Array.isArray(s.question_groups)) s.groups = s.question_groups;
+      else if (Array.isArray(s.blocks)) {
+        s.groups = [{ id: `${s.id}-g1`, blocks: s.blocks }];
+        delete s.blocks;
+      } else {
+        s.groups = [];
+      }
+    }
+
+    s.groups = (s.groups as unknown[]).map((grp, gi) => {
+      if (!grp || typeof grp !== "object") {
+        return { id: `${s.id}-g${gi + 1}`, blocks: [] as unknown[] };
+      }
+      const g = { ...(grp as Record<string, unknown>) };
+      if (typeof g.id !== "string" || !g.id) g.id = `${s.id}-g${gi + 1}`;
+      if (!Array.isArray(g.blocks)) {
+        if (Array.isArray(g.questions)) g.blocks = g.questions;
+        else if (Array.isArray(g.items)) g.blocks = g.items;
+        else if (Array.isArray(g.content)) g.blocks = g.content;
+        else g.blocks = [];
+      }
+      g.blocks = (g.blocks as unknown[]).filter(
+        (b) => b && typeof b === "object" && typeof (b as { type?: unknown }).type === "string",
+      );
+      if (Array.isArray(g.instructions)) {
+        g.instructions = g.instructions.map((x) => String(x));
+      }
+      return g;
+    });
+
+    return s;
+  });
+
+  // Still nothing usable — stub so convert doesn't hard-fail on shape alone
+  if (!(cleaned.sections as unknown[]).length) {
+    cleaned.sections = [
+      {
+        id: "sec-1",
+        heading: "Exam",
+        groups: [
+          {
+            id: "g1",
+            blocks: [
+              {
+                type: "passage",
+                paragraphs: [
+                  "(Model returned incomplete JSON — try Convert again with clearer screenshots.)",
+                ],
+                needsReview: true,
+              },
+            ],
+          },
+        ],
+      },
+    ];
+  }
 }
 
 function defaultParagraphOptions(from: string, to: string) {
