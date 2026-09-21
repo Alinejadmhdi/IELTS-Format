@@ -253,6 +253,7 @@ export const ExamDocumentSchema = z.object({
 export type TextPart = z.infer<typeof TextPartSchema>;
 export type FormRow = z.infer<typeof FormRowSchema>;
 export type Block = z.infer<typeof BlockSchema>;
+export type MatchingFromBoxBlock = z.infer<typeof MatchingFromBoxBlockSchema>;
 export type QuestionGroup = z.infer<typeof QuestionGroupSchema>;
 export type Section = z.infer<typeof SectionSchema>;
 export type ExamDocument = z.infer<typeof ExamDocumentSchema>;

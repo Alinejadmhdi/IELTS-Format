@@ -1,5 +1,6 @@
 import type { Block, ImageRef } from "@ielts/schema";
 import { AnswerBox } from "./AnswerBox";
+import { MatchingFromBox } from "./MatchingFromBox";
 import { TextWithAnswers } from "./TextWithAnswers";
 import { HighlightableText } from "./HighlightableText";
 import type { MarkResult } from "../lib/answerKey";
@@ -282,62 +283,15 @@ export function BlockRenderer({
 
     case "matchingFromBox":
       return (
-        <div className="matching-block">
-          <div className="option-box">
-            {block.boxTitle && (
-              <HighlightableText
-                blockKey={`${blockKey}-box-title`}
-                text={block.boxTitle}
-                {...textProps}
-                as="h3"
-              />
-            )}
-            <ul>
-              {block.options.map((o) => (
-                <li key={o.letter}>
-                  <strong>{o.letter}</strong>{" "}
-                  <HighlightableText
-                    blockKey={`${blockKey}-opt-${o.letter}`}
-                    text={o.text}
-                    {...textProps}
-                    as="span"
-                  />
-                </li>
-              ))}
-            </ul>
-          </div>
-          <div className="match-items">
-            {block.itemsTitle && (
-              <HighlightableText
-                blockKey={`${blockKey}-items-title`}
-                text={block.itemsTitle}
-                {...textProps}
-                as="h3"
-              />
-            )}
-            <ul>
-              {block.items.map((item) => (
-                <li key={item.questionNumber}>
-                  <HighlightableText
-                    blockKey={`${blockKey}-item-${item.questionNumber}`}
-                    text={item.text}
-                    {...textProps}
-                    as="span"
-                    className="item-text"
-                  />
-                  <AnswerBox
-                    questionNumber={item.questionNumber}
-                    value={answers[answerKey(item.questionNumber)] ?? ""}
-                    onChange={(v) => onAnswer(item.questionNumber, v)}
-                    allowedValues={block.options.map((o) => o.letter)}
-                    width="sm"
-                    mark={marks?.[answerKey(item.questionNumber)]}
-                  />
-                </li>
-              ))}
-            </ul>
-          </div>
-        </div>
+        <MatchingFromBox
+          block={block}
+          blockKey={blockKey}
+          answers={answers}
+          onAnswer={onAnswer}
+          highlights={highlights}
+          onAddHighlight={onAddHighlight}
+          marks={marks}
+        />
       );
 
     case "multiSelectLetters":
