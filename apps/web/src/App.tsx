@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ExamDocument } from "@ielts/schema";
 import { AnswerKeyPanel } from "./components/AnswerKeyPanel";
 import { ApiKeySetup } from "./components/ApiKeySetup";
@@ -54,6 +54,11 @@ export default function App() {
   const [imageUrls, setImageUrls] = useState<string[] | undefined>();
   const [answers, setAnswers] = useState<AnswersMap>({});
   const [highlights, setHighlights] = useState<HighlightRange[]>([]);
+  const [canUndoHighlight, setCanUndoHighlight] = useState(false);
+  const highlightHistory = useRef<{
+    past: HighlightRange[][];
+    future: HighlightRange[][];
+  }>({ past: [], future: [] });
   const [busy, setBusy] = useState(false);
   const [progress, setProgress] = useState<JobProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -99,6 +104,77 @@ export default function App() {
     [answers],
   );
 
+  const resetHighlightHistory = useCallback(() => {
+    highlightHistory.current = { past: [], future: [] };
+    setCanUndoHighlight(false);
+  }, []);
+
+  const commitHighlights = useCallback(
+    (updater: HighlightRange[] | ((prev: HighlightRange[]) => HighlightRange[])) => {
+      setHighlights((prev) => {
+        const next = typeof updater === "function" ? updater(prev) : updater;
+        if (next === prev) return prev;
+        const hist = highlightHistory.current;
+        hist.past.push(prev);
+        if (hist.past.length > 60) hist.past.shift();
+        hist.future = [];
+        setCanUndoHighlight(true);
+        return next;
+      });
+    },
+    [],
+  );
+
+  const undoHighlight = useCallback(() => {
+    const hist = highlightHistory.current;
+    if (!hist.past.length) return;
+    setHighlights((curr) => {
+      const prev = hist.past.pop()!;
+      hist.future.unshift(curr);
+      if (hist.future.length > 60) hist.future.pop();
+      setCanUndoHighlight(hist.past.length > 0);
+      return prev;
+    });
+  }, []);
+
+  const redoHighlight = useCallback(() => {
+    const hist = highlightHistory.current;
+    if (!hist.future.length) return;
+    setHighlights((curr) => {
+      const next = hist.future.shift()!;
+      hist.past.push(curr);
+      setCanUndoHighlight(true);
+      return next;
+    });
+  }, []);
+
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName?.toLowerCase();
+      if (
+        tag === "input" ||
+        tag === "textarea" ||
+        tag === "select" ||
+        target?.isContentEditable
+      ) {
+        return;
+      }
+      const key = e.key.toLowerCase();
+      if (key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        undoHighlight();
+      } else if (key === "y" || (key === "z" && e.shiftKey)) {
+        e.preventDefault();
+        redoHighlight();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [undoHighlight, redoHighlight]);
+
   function hydrateExam(next: ExamDocument, urls?: string[]) {
     // Each convert / sample open is a new blank attempt — never restore old answers
     clearPersistedForExam(next.id);
@@ -110,6 +186,7 @@ export default function App() {
     setImageUrls(urls);
     setAnswers({});
     setHighlights([]);
+    resetHighlightHistory();
     setMarks(null);
     setParsedKey(null);
     setKeyError(null);
@@ -230,7 +307,9 @@ export default function App() {
         </div>
       </header>
 
-      <main className={`main-grid ${exam ? "with-key" : ""}`}>
+      <main
+        className={`main-grid ${exam ? "with-key" : ""} ${exam?.module === "reading" ? "reading-active" : ""}`}
+      >
         <section className="left-col">
           <ConnectionStatus
             health={health}
@@ -265,8 +344,9 @@ export default function App() {
           </div>
           {error && <p className="error">{error}</p>}
           <p className="tip">
-            Select text in the paper to highlight. Convert can take several minutes
-            while the vision API reads the screenshots — watch the status box above.
+            Select text in the paper to highlight (Ctrl+Z undoes). Convert can take
+            several minutes while the vision API reads the screenshots — watch the
+            status box above.
           </p>
         </section>
 
@@ -281,9 +361,11 @@ export default function App() {
               }}
               highlights={highlights}
               onAddHighlight={(h) =>
-                setHighlights((prev) => addMergedHighlight(prev, h))
+                commitHighlights((prev) => addMergedHighlight(prev, h))
               }
-              onClearHighlights={() => setHighlights([])}
+              onClearHighlights={() => commitHighlights([])}
+              onUndoHighlight={undoHighlight}
+              canUndoHighlight={canUndoHighlight}
               imageUrls={imageUrls}
               marks={marks}
             />

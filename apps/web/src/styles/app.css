@@ -133,7 +133,15 @@ select {
 }
 
 .main-grid.with-key {
-  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr) minmax(240px, 300px);
+  grid-template-columns: minmax(200px, 260px) minmax(0, 1fr) minmax(220px, 280px);
+}
+
+.main-grid.reading-active {
+  grid-template-columns: minmax(200px, 240px) minmax(0, 1fr);
+}
+
+.main-grid.reading-active.with-key {
+  grid-template-columns: minmax(180px, 220px) minmax(0, 1fr) minmax(200px, 260px);
 }
 
 @media (max-width: 1100px) {
@@ -556,6 +564,13 @@ html[data-theme="dark"] .primary:hover {
   padding-bottom: 0.45rem;
   border-bottom: 1px solid #bbb;
   font-size: 0.85rem;
+}
+
+.exam-toolbar .toolbar-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: center;
 }
 
 .section-header {
@@ -1086,6 +1101,68 @@ html[data-theme="dark"] .matching-dnd .dnd-slot.drag-over {
   column-width: 26rem;
   column-gap: 1.75rem;
   margin: 0.5rem 0 1rem;
+}
+
+.exam-paper.module-reading .reading-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 0;
+  align-items: stretch;
+  margin-top: 0.35rem;
+  border: 1px solid #ccc;
+  min-height: min(70vh, 820px);
+}
+
+.exam-paper.module-reading .reading-passage-col,
+.exam-paper.module-reading .reading-questions-col {
+  max-height: min(75vh, 880px);
+  overflow: auto;
+  padding: 0.75rem 1rem 1.25rem;
+  overscroll-behavior: contain;
+}
+
+.exam-paper.module-reading .reading-passage-col {
+  border-right: 1px solid #ccc;
+  background: #fcfcfc;
+}
+
+.exam-paper.module-reading .reading-questions-col {
+  background: #fff;
+}
+
+.exam-paper.module-reading .reading-passage-col .passage-block {
+  column-width: auto;
+  columns: 1;
+}
+
+.exam-paper.module-reading .reading-passage-col .section-header,
+.exam-paper.module-reading .reading-questions-col .section-header {
+  margin-top: 0;
+}
+
+@media (max-width: 980px) {
+  .exam-paper.module-reading .reading-split {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .exam-paper.module-reading .reading-passage-col {
+    border-right: none;
+    border-bottom: 1px solid #ccc;
+    max-height: min(45vh, 420px);
+  }
+
+  .exam-paper.module-reading .reading-questions-col {
+    max-height: min(55vh, 520px);
+  }
+}
+
+html[data-theme="dark"] .exam-paper.module-reading .reading-passage-col {
+  background: #f7f7f7;
+}
+
+html[data-theme="dark"] .exam-paper.module-reading .reading-questions-col {
+  background: #fff;
 }
 
 .passage-block > h2 {
