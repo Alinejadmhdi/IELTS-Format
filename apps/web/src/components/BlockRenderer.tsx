@@ -1,6 +1,15 @@
-import type { Block, ImageRef } from "@ielts/schema";
+import type { Block, ImageRef, MatchingHeadingsBlock } from "@ielts/schema";
 import { AnswerBox } from "./AnswerBox";
 import { MatchingFromBox } from "./MatchingFromBox";
+import {
+  HeadingDropSlot,
+  MatchingHeadingsList,
+  slotsBeforeParagraph,
+} from "./MatchingHeadings";
+import {
+  JudgmentChoice,
+  judgmentOptionsFromKey,
+} from "./JudgmentChoice";
 import { TextWithAnswers } from "./TextWithAnswers";
 import { HighlightableText } from "./HighlightableText";
 import type { MarkResult } from "../lib/answerKey";
@@ -16,6 +25,7 @@ type Props = {
   onAddHighlight: (h: Omit<HighlightRange, "id">) => void;
   resolveImage: (image?: ImageRef) => string | undefined;
   marks?: Record<string, MarkResult> | null;
+  matchingHeadings?: MatchingHeadingsBlock[];
 };
 
 export function BlockRenderer({
@@ -27,6 +37,7 @@ export function BlockRenderer({
   onAddHighlight,
   resolveImage,
   marks,
+  matchingHeadings = [],
 }: Props) {
   if (block.needsReview) {
     return (
@@ -294,6 +305,9 @@ export function BlockRenderer({
         />
       );
 
+    case "matchingHeadings":
+      return <MatchingHeadingsList block={block} />;
+
     case "multiSelectLetters":
       return (
         <div className="multi-select-block">
@@ -365,13 +379,21 @@ export function BlockRenderer({
           )}
           <div className="passage-body">
             {block.paragraphs.map((p, i) => (
-              <HighlightableText
-                key={i}
-                blockKey={`${blockKey}-p-${i}`}
-                text={p}
-                {...textProps}
-                as="p"
-              />
+              <div key={i} className="passage-para-wrap">
+                {slotsBeforeParagraph(matchingHeadings, i).map((slot) => (
+                  <HeadingDropSlot
+                    key={slot.questionNumber}
+                    questionNumber={slot.questionNumber}
+                    mark={marks?.[answerKey(slot.questionNumber)]}
+                  />
+                ))}
+                <HighlightableText
+                  blockKey={`${blockKey}-p-${i}`}
+                  text={p}
+                  {...textProps}
+                  as="p"
+                />
+              </div>
             ))}
           </div>
         </article>
@@ -381,7 +403,7 @@ export function BlockRenderer({
     case "trueFalseNotGiven":
     case "yesNoNotGiven":
       return (
-        <div className="tfng-block">
+        <div className="tfng-block judgment-block">
           <ul className="tfng-key">
             {block.key.map((k) => (
               <li key={k.value}>
@@ -389,26 +411,31 @@ export function BlockRenderer({
               </li>
             ))}
           </ul>
-          <ol className="tfng-list">
+          <div className="judgment-list">
             {block.statements.map((s) => (
-              <li key={s.questionNumber}>
-                <HighlightableText
-                  blockKey={`${blockKey}-tf-${s.questionNumber}`}
-                  text={s.text}
-                  {...textProps}
-                  as="p"
-                />
-                <AnswerBox
+              <div key={s.questionNumber} className="judgment-row">
+                <div className="judgment-statement">
+                  <span className="q-chip" aria-hidden>
+                    {s.questionNumber}
+                  </span>
+                  <HighlightableText
+                    blockKey={`${blockKey}-tf-${s.questionNumber}`}
+                    text={s.text}
+                    {...textProps}
+                    as="span"
+                    className="judgment-text"
+                  />
+                </div>
+                <JudgmentChoice
                   questionNumber={s.questionNumber}
                   value={answers[answerKey(s.questionNumber)] ?? ""}
+                  options={judgmentOptionsFromKey(block.key)}
                   onChange={(v) => onAnswer(s.questionNumber, v)}
-                  allowedValues={block.key.map((k) => k.value)}
-                  width="md"
                   mark={marks?.[answerKey(s.questionNumber)]}
                 />
-              </li>
+              </div>
             ))}
-          </ol>
+          </div>
         </div>
       );
 

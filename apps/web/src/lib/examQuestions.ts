@@ -40,6 +40,9 @@ export function collectQuestionNumbers(exam: ExamDocument): number[] {
           case "matchingFromBox":
             for (const item of block.items) nums.add(item.questionNumber);
             break;
+          case "matchingHeadings":
+            for (const slot of block.slots) nums.add(slot.questionNumber);
+            break;
           case "multipleChoice":
             for (const q of block.questions) nums.add(q.questionNumber);
             break;

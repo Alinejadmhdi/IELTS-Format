@@ -1,13 +1,23 @@
-import { useMemo } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import type {
   Block,
   ExamDocument,
   ImageRef,
+  MatchingHeadingsBlock,
   QuestionGroup,
   Section,
 } from "@ielts/schema";
 import { BlockRenderer } from "./BlockRenderer";
 import { HighlightableText } from "./HighlightableText";
+import { MatchingHeadingsProvider } from "./MatchingHeadings";
 import type { MarkResult } from "../lib/answerKey";
 import type { AnswersMap, HighlightRange } from "../lib/persistence";
 
@@ -28,7 +38,6 @@ type SplitPiece = {
   section: Section;
   group: QuestionGroup;
   blocks: Block[];
-  showGroupChrome: boolean;
 };
 
 const listeningSampleImages = [
@@ -49,32 +58,27 @@ const readingSampleImages = [
 function splitReading(exam: ExamDocument): {
   passages: SplitPiece[];
   questions: SplitPiece[];
+  matchingHeadings: MatchingHeadingsBlock[];
 } {
   const passages: SplitPiece[] = [];
   const questions: SplitPiece[] = [];
+  const matchingHeadings: MatchingHeadingsBlock[] = [];
   for (const section of exam.sections) {
     for (const group of section.groups) {
       const passageBlocks = group.blocks.filter((b) => b.type === "passage");
       const otherBlocks = group.blocks.filter((b) => b.type !== "passage");
+      for (const b of otherBlocks) {
+        if (b.type === "matchingHeadings") matchingHeadings.push(b);
+      }
       if (passageBlocks.length) {
-        passages.push({
-          section,
-          group,
-          blocks: passageBlocks,
-          showGroupChrome: false,
-        });
+        passages.push({ section, group, blocks: passageBlocks });
       }
       if (otherBlocks.length) {
-        questions.push({
-          section,
-          group,
-          blocks: otherBlocks,
-          showGroupChrome: true,
-        });
+        questions.push({ section, group, blocks: otherBlocks });
       }
     }
   }
-  return { passages, questions };
+  return { passages, questions, matchingHeadings };
 }
 
 export function ExamView({
@@ -111,10 +115,40 @@ export function ExamView({
     [exam],
   );
 
+  const [passRatio, setPassRatio] = useState(0.48);
+  const splitRef = useRef<HTMLDivElement>(null);
+  const dragging = useRef(false);
+
+  useEffect(() => {
+    function onMove(e: PointerEvent) {
+      if (!dragging.current || !splitRef.current) return;
+      const rect = splitRef.current.getBoundingClientRect();
+      const next = (e.clientX - rect.left) / rect.width;
+      setPassRatio(Math.min(0.72, Math.max(0.28, next)));
+    }
+    function onUp() {
+      dragging.current = false;
+      document.body.classList.remove("resizing-split");
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+  }, []);
+
+  const startResize = useCallback((e: ReactPointerEvent) => {
+    e.preventDefault();
+    dragging.current = true;
+    document.body.classList.add("resizing-split");
+  }, []);
+
   function renderBlocks(
     sectionId: string,
     groupId: string,
     blocks: Block[],
+    matchingHeadings: MatchingHeadingsBlock[] = [],
   ) {
     return blocks.map((block, bi) => (
       <BlockRenderer
@@ -127,21 +161,18 @@ export function ExamView({
         onAddHighlight={onAddHighlight}
         resolveImage={resolveImage}
         marks={marks}
+        matchingHeadings={matchingHeadings}
       />
     ));
   }
 
-  function renderGroupChrome(
-    section: Section,
-    group: QuestionGroup,
-    opts?: { headingFallback?: string },
-  ) {
+  function renderGroupChrome(section: Section, group: QuestionGroup) {
     return (
       <>
-        {(group.heading || opts?.headingFallback) && (
+        {group.heading && (
           <HighlightableText
             blockKey={`${section.id}-${group.id}-heading`}
-            text={group.heading || opts?.headingFallback || ""}
+            text={group.heading}
             highlights={highlights}
             onAddHighlight={onAddHighlight}
             as="h3"
@@ -200,58 +231,90 @@ export function ExamView({
 
   function renderReadingSplit() {
     if (!readingSplit) return null;
-    const { passages, questions } = readingSplit;
+    const { passages, questions, matchingHeadings } = readingSplit;
     const firstSection = exam.sections[0];
+    const partLabel =
+      firstSection?.heading ||
+      (firstSection?.questionRange
+        ? `Questions ${firstSection.questionRange}`
+        : "Reading");
 
     return (
-      <div className="reading-split">
-        <div className="reading-passage-col" aria-label="Reading passage">
-          {firstSection && (
-            <header className="section-header">
-              <HighlightableText
-                blockKey={`${firstSection.id}-heading-pass`}
-                text={firstSection.heading}
-                highlights={highlights}
-                onAddHighlight={onAddHighlight}
-                as="h2"
-              />
-            </header>
-          )}
-          {passages.map(({ section, group, blocks }) => (
-            <div key={`pass-${section.id}-${group.id}`} className="question-group">
-              {group.instructions?.map((line, i) => (
-                <HighlightableText
-                  key={i}
-                  blockKey={`${section.id}-${group.id}-pass-instr-${i}`}
-                  text={line}
-                  highlights={highlights}
-                  onAddHighlight={onAddHighlight}
-                  as="p"
-                  className="instruction"
-                />
-              ))}
-              {renderBlocks(section.id, group.id, blocks)}
-            </div>
-          ))}
-          {!passages.length && (
-            <p className="muted">No passage block found in this exam.</p>
-          )}
-        </div>
-        <div className="reading-questions-col" aria-label="Reading questions">
+      <MatchingHeadingsProvider
+        blocks={matchingHeadings}
+        answers={answers}
+        onAnswer={onAnswer}
+      >
+        <div className="reading-part-bar">
+          <strong>{partLabel}</strong>
           {firstSection?.questionRange && (
-            <header className="section-header">
-              <h2>Questions</h2>
-              <span className="range">Questions {firstSection.questionRange}</span>
-            </header>
+            <span>
+              Read the text and answer questions {firstSection.questionRange}.
+            </span>
           )}
-          {questions.map(({ section, group, blocks }) => (
-            <div key={`q-${section.id}-${group.id}`} className="question-group">
-              {renderGroupChrome(section, group)}
-              {renderBlocks(section.id, `${group.id}-q`, blocks)}
-            </div>
-          ))}
         </div>
-      </div>
+        <div
+          className="reading-split"
+          ref={splitRef}
+          style={
+            {
+              "--pass-ratio": String(passRatio),
+            } as CSSProperties
+          }
+        >
+          <div className="reading-passage-col" aria-label="Reading passage">
+            {passages.map(({ section, group, blocks }) => (
+              <div
+                key={`pass-${section.id}-${group.id}`}
+                className="question-group"
+              >
+                {group.instructions?.map((line, i) => (
+                  <HighlightableText
+                    key={i}
+                    blockKey={`${section.id}-${group.id}-pass-instr-${i}`}
+                    text={line}
+                    highlights={highlights}
+                    onAddHighlight={onAddHighlight}
+                    as="p"
+                    className="instruction"
+                  />
+                ))}
+                {renderBlocks(
+                  section.id,
+                  group.id,
+                  blocks,
+                  matchingHeadings,
+                )}
+              </div>
+            ))}
+            {!passages.length && (
+              <p className="muted">No passage block found in this exam.</p>
+            )}
+          </div>
+
+          <div
+            className="reading-splitter"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize passage and questions"
+            onPointerDown={startResize}
+          >
+            <span className="splitter-grip" aria-hidden />
+          </div>
+
+          <div className="reading-questions-col" aria-label="Reading questions">
+            {questions.map(({ section, group, blocks }) => (
+              <div
+                key={`q-${section.id}-${group.id}`}
+                className="question-group"
+              >
+                {renderGroupChrome(section, group)}
+                {renderBlocks(section.id, `${group.id}-q`, blocks)}
+              </div>
+            ))}
+          </div>
+        </div>
+      </MatchingHeadingsProvider>
     );
   }
 
@@ -269,13 +332,17 @@ export function ExamView({
             </button>
           )}
           {highlights.length > 0 && (
-            <button type="button" className="linkish" onClick={onClearHighlights}>
+            <button
+              type="button"
+              className="linkish"
+              onClick={onClearHighlights}
+            >
               Clear highlights
             </button>
           )}
         </span>
       </div>
-      {exam.title && (
+      {exam.title && exam.module !== "reading" && (
         <HighlightableText
           blockKey={`${exam.id}-title`}
           text={exam.title}

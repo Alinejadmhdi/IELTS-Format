@@ -156,6 +156,25 @@ export const MatchingFromBoxBlockSchema = z.object({
   needsReview: z.boolean().optional(),
 });
 
+export const MatchingHeadingsBlockSchema = z.object({
+  type: z.literal("matchingHeadings"),
+  listTitle: z.string().optional(),
+  headings: z.array(
+    z.object({
+      id: z.string(),
+      text: z.string(),
+    }),
+  ),
+  slots: z.array(
+    z.object({
+      questionNumber: z.coerce.number(),
+      /** 0-based index: drop zone appears before this paragraph in the passage. */
+      beforeParagraph: z.coerce.number(),
+    }),
+  ),
+  needsReview: z.boolean().optional(),
+});
+
 export const MultiSelectLettersBlockSchema = z.object({
   type: z.literal("multiSelectLetters"),
   selectCount: z.coerce.number(),
@@ -220,6 +239,7 @@ export const BlockSchema = z.discriminatedUnion("type", [
   DiagramBlockSchema,
   MultipleChoiceBlockSchema,
   MatchingFromBoxBlockSchema,
+  MatchingHeadingsBlockSchema,
   MultiSelectLettersBlockSchema,
   PassageBlockSchema,
   TfngBlockSchema,
@@ -254,6 +274,7 @@ export type TextPart = z.infer<typeof TextPartSchema>;
 export type FormRow = z.infer<typeof FormRowSchema>;
 export type Block = z.infer<typeof BlockSchema>;
 export type MatchingFromBoxBlock = z.infer<typeof MatchingFromBoxBlockSchema>;
+export type MatchingHeadingsBlock = z.infer<typeof MatchingHeadingsBlockSchema>;
 export type QuestionGroup = z.infer<typeof QuestionGroupSchema>;
 export type Section = z.infer<typeof SectionSchema>;
 export type ExamDocument = z.infer<typeof ExamDocumentSchema>;

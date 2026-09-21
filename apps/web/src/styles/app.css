@@ -1103,41 +1103,276 @@ html[data-theme="dark"] .matching-dnd .dnd-slot.drag-over {
   margin: 0.5rem 0 1rem;
 }
 
+.exam-paper.module-reading {
+  border: none;
+  box-shadow: none;
+  padding: 0.75rem 0.5rem 1rem;
+  font-size: 1.05rem;
+}
+
+.exam-paper.module-reading .exam-toolbar {
+  padding: 0 0.75rem 0.55rem;
+  margin-bottom: 0.65rem;
+}
+
+.reading-part-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.55rem 1rem;
+  padding: 0.65rem 1rem;
+  margin: 0 0.25rem 0.65rem;
+  background: #ececec;
+  border-radius: 2px;
+  font-size: 1rem;
+  color: #222;
+}
+
+.reading-part-bar strong {
+  font-size: 1.05rem;
+}
+
 .exam-paper.module-reading .reading-split {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  grid-template-columns:
+    minmax(0, calc(var(--pass-ratio, 0.48) * 100%))
+    10px
+    minmax(0, 1fr);
   gap: 0;
   align-items: stretch;
-  margin-top: 0.35rem;
-  border: 1px solid #ccc;
-  min-height: min(70vh, 820px);
+  margin: 0 0.25rem;
+  border: 1px solid #c8c8c8;
+  min-height: min(72vh, 860px);
+  background: #fff;
 }
 
 .exam-paper.module-reading .reading-passage-col,
 .exam-paper.module-reading .reading-questions-col {
-  max-height: min(75vh, 880px);
+  max-height: min(72vh, 860px);
   overflow: auto;
-  padding: 0.75rem 1rem 1.25rem;
+  padding: 1.1rem 1.25rem 1.5rem;
   overscroll-behavior: contain;
+  font-size: 1.05rem;
+  line-height: 1.55;
 }
 
 .exam-paper.module-reading .reading-passage-col {
-  border-right: 1px solid #ccc;
-  background: #fcfcfc;
+  background: #fff;
 }
 
 .exam-paper.module-reading .reading-questions-col {
   background: #fff;
 }
 
+.exam-paper.module-reading .reading-splitter {
+  position: relative;
+  cursor: col-resize;
+  background: #ddd;
+  touch-action: none;
+}
+
+.exam-paper.module-reading .splitter-grip {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 18px;
+  height: 28px;
+  transform: translate(-50%, -50%);
+  border: 1px solid #bbb;
+  border-radius: 3px;
+  background: #f5f5f5
+    linear-gradient(#999, #999) center / 10px 2px no-repeat;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+}
+
+body.resizing-split {
+  cursor: col-resize;
+  user-select: none;
+}
+
 .exam-paper.module-reading .reading-passage-col .passage-block {
   column-width: auto;
   columns: 1;
+  margin: 0;
 }
 
-.exam-paper.module-reading .reading-passage-col .section-header,
-.exam-paper.module-reading .reading-questions-col .section-header {
-  margin-top: 0;
+.exam-paper.module-reading .passage-block > h2,
+.exam-paper.module-reading .passage-body {
+  font-family: var(--sans);
+}
+
+.exam-paper.module-reading .passage-block > h2 {
+  text-align: left;
+  font-size: 1.35rem;
+  margin: 0 0 1rem;
+}
+
+.exam-paper.module-reading .passage-body p {
+  font-family: var(--sans);
+  font-size: 1.05rem;
+  line-height: 1.6;
+  text-align: left;
+  margin: 0 0 1rem;
+}
+
+.exam-paper.module-reading .group-heading {
+  font-style: normal;
+  font-size: 1.15rem;
+  margin: 0 0 0.45rem;
+}
+
+.exam-paper.module-reading .instruction {
+  font-size: 1rem;
+  margin: 0.25rem 0 0.85rem;
+}
+
+.q-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.65rem;
+  height: 1.65rem;
+  padding: 0 0.3rem;
+  margin-right: 0.45rem;
+  border: 1px solid #7eb6e8;
+  background: #e8f3fb;
+  color: #123;
+  font-weight: 700;
+  font-size: 0.92rem;
+  font-family: var(--sans);
+  flex-shrink: 0;
+}
+
+.judgment-list {
+  display: grid;
+  gap: 1.15rem;
+}
+
+.judgment-row {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.judgment-statement {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.15rem;
+  line-height: 1.45;
+}
+
+.judgment-text {
+  flex: 1;
+}
+
+.judgment-options {
+  list-style: none;
+  margin: 0.15rem 0 0 2.1rem;
+  padding: 0;
+  display: grid;
+  gap: 0.2rem;
+}
+
+.judgment-option {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  cursor: pointer;
+  padding: 0.2rem 0.35rem;
+  border-radius: 2px;
+  width: fit-content;
+}
+
+.judgment-option.selected {
+  background: #ececec;
+}
+
+.judgment-option input {
+  accent-color: #2b6cb0;
+}
+
+.matching-headings {
+  margin: 0.5rem 0 1.25rem;
+}
+
+.mh-list-title {
+  margin: 0 0 0.45rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+.heading-bank {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.45rem;
+}
+
+.heading-chip {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+  cursor: grab;
+  border: 1px solid #bbb;
+  border-radius: 6px;
+  background: #f0f0f0;
+  padding: 0.55rem 0.7rem;
+  font: inherit;
+  color: #111;
+}
+
+.heading-chip:active {
+  cursor: grabbing;
+}
+
+.heading-chip.active {
+  outline: 2px solid #2b6cb0;
+  background: #e8f3fb;
+}
+
+.heading-chip.used {
+  opacity: 0.7;
+}
+
+.heading-chip-text {
+  flex: 1;
+}
+
+.heading-slot {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  min-height: 2.4rem;
+  margin: 0 0 0.75rem;
+  padding: 0.4rem 0.55rem;
+  border: 1.5px dashed #888;
+  background: #fafafa;
+  cursor: pointer;
+}
+
+.heading-slot.filled {
+  border-style: solid;
+  background: #f0f0f0;
+}
+
+.heading-slot.drag-over {
+  border-color: #2b6cb0;
+  background: #e8f3fb;
+}
+
+.heading-slot-placeholder {
+  color: #777;
+  font-size: 0.95rem;
+}
+
+.heading-slot-text {
+  font-weight: 600;
+}
+
+.passage-para-wrap {
+  margin: 0;
 }
 
 @media (max-width: 980px) {
@@ -1146,23 +1381,30 @@ html[data-theme="dark"] .matching-dnd .dnd-slot.drag-over {
     min-height: 0;
   }
 
+  .exam-paper.module-reading .reading-splitter {
+    display: none;
+  }
+
   .exam-paper.module-reading .reading-passage-col {
-    border-right: none;
-    border-bottom: 1px solid #ccc;
-    max-height: min(45vh, 420px);
+    border-bottom: 1px solid #c8c8c8;
+    max-height: min(42vh, 420px);
   }
 
   .exam-paper.module-reading .reading-questions-col {
-    max-height: min(55vh, 520px);
+    max-height: min(50vh, 520px);
   }
 }
 
-html[data-theme="dark"] .exam-paper.module-reading .reading-passage-col {
-  background: #f7f7f7;
+html[data-theme="dark"] .reading-part-bar {
+  background: #3a2230;
+  color: #f3e6ec;
 }
 
+html[data-theme="dark"] .exam-paper.module-reading .reading-split,
+html[data-theme="dark"] .exam-paper.module-reading .reading-passage-col,
 html[data-theme="dark"] .exam-paper.module-reading .reading-questions-col {
   background: #fff;
+  color: #111;
 }
 
 .passage-block > h2 {

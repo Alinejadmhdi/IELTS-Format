@@ -12,6 +12,7 @@ Block "type" values and shapes:
 - map|plan|diagram: {type,title?,image?:{sourceIndex:number,crop?:{x,y,w,h}},labels:[{questionNumber,promptBefore?,promptAfter?,maxWords?}]}
 - multipleChoice: {type,title?,questions:[{questionNumber,stem,options:[{letter,text}]}],decorativeImage?:{sourceIndex,crop?}}
 - matchingFromBox: {type,boxTitle?,options:[{letter,text}],itemsTitle?,items:[{questionNumber,text}]}
+- matchingHeadings: {type,listTitle?,headings:[{id,text}],slots:[{questionNumber,beforeParagraph:number}]}
 - multiSelectLetters: {type,selectCount,prompt,options:[{letter,text}],questionNumbers:number[]}
 - passage: {type,title?,guidance?,paragraphs:string[],figure?:{sourceIndex,crop?,caption?}}
 - trueFalseNotGiven|yesNoNotGiven: {type,key:[{value,meaning}],statements:[{questionNumber,text}]}
@@ -19,6 +20,6 @@ Block "type" values and shapes:
 
 TextPart: {"kind":"text","text":string} OR {"kind":"answer","questionNumber":number,"maxWords"?:number,"allowNumber"?:boolean,"width"?:"sm"|"md"|"lg"}
 
-Rules: preserve headings/instructions/word limits; replace blanks with answer parts (never invent Q numbers); Example rows are not live answers; static filled lines stay text; for visuals set sourceIndex 0-based; matchingFromBox keeps options+items; Choose N letters => multiSelectLetters; tables keep inline answers; Reading uses passage + TFNG/classify/MCQ; unsure => needsReview:true; STRICT JSON only.`;
+Rules: preserve headings/instructions/word limits; replace blanks with answer parts (never invent Q numbers); Example rows are not live answers; static filled lines stay text; for visuals set sourceIndex 0-based; matchingFromBox keeps options+items; matchingHeadings puts List of Headings on the questions side and numbered gaps in the passage (beforeParagraph = 0-based paragraph index); Choose N letters => multiSelectLetters; tables keep inline answers; Reading = passage + questions (TFNG/headings/summary/MCQ) for a computer split view; unsure => needsReview:true; STRICT JSON only.`;
 
 export const IELTS_PARSE_PROMPT = IELTS_PARSE_PROMPT_CHAT;
