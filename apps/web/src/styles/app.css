@@ -1252,10 +1252,53 @@ body.resizing-split {
   font-family: var(--sans);
 }
 
-.exam-paper.module-reading .passage-block > h2 {
+.exam-paper.module-reading .passage-block > h2,
+.exam-paper.module-reading .passage-title {
   text-align: left;
   font-size: 1.35rem;
-  margin: 0 0 1rem;
+  margin: 0 0 0.35rem;
+}
+
+.exam-paper.module-reading .passage-subtitle {
+  margin: 0 0 0.85rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #444;
+}
+
+.exam-paper.module-reading .passage-figures {
+  float: none;
+  display: grid;
+  gap: 0.85rem;
+  margin: 0 0 1.1rem;
+  max-width: none;
+}
+
+.exam-paper.module-reading .passage-figure {
+  float: none;
+  max-width: min(100%, 420px);
+  margin: 0 auto;
+}
+
+.exam-paper.module-reading .passage-figure img {
+  width: 100%;
+  height: auto;
+  object-fit: contain;
+  background: #fafafa;
+}
+
+.exam-paper.module-reading .passage-footnotes {
+  margin-top: 1.25rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #ddd;
+}
+
+.exam-paper.module-reading .passage-footnote {
+  margin: 0 0 0.35rem;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: #555;
+  font-style: italic;
 }
 
 .exam-paper.module-reading .passage-body p {
@@ -1458,13 +1501,24 @@ html[data-theme="dark"] .exam-paper.module-reading .reading-questions-col {
   color: #111;
 }
 
-.passage-block > h2 {
+.passage-block > h2,
+.passage-title {
   column-span: all;
   font-family: var(--serif);
   font-size: 1.15rem;
   font-weight: 700;
-  margin: 0 0 0.5rem;
+  margin: 0 0 0.35rem;
   text-align: center;
+}
+
+.passage-subtitle {
+  column-span: all;
+  font-family: var(--serif);
+  font-size: 0.98rem;
+  font-weight: 600;
+  margin: 0 0 0.65rem;
+  text-align: center;
+  color: var(--exam-muted);
 }
 
 .passage-guidance {
@@ -1484,11 +1538,17 @@ html[data-theme="dark"] .exam-paper.module-reading .reading-questions-col {
   hyphens: auto;
 }
 
+.passage-figures {
+  column-span: all;
+  display: grid;
+  gap: 0.75rem;
+  margin: 0 0 0.85rem;
+}
+
 .passage-figure {
   break-inside: avoid;
-  max-width: 240px;
-  float: right;
-  margin: 0 0 0.75rem 0.85rem;
+  max-width: 280px;
+  margin: 0 auto 0.75rem;
 }
 
 .passage-figure figcaption {
@@ -1496,6 +1556,20 @@ html[data-theme="dark"] .exam-paper.module-reading .reading-questions-col {
   font-style: italic;
   margin-top: 0.25rem;
   text-align: center;
+}
+
+.passage-footnotes {
+  column-span: all;
+  margin-top: 0.85rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--exam-line);
+}
+
+.passage-footnote {
+  margin: 0 0 0.3rem;
+  font-size: 0.82rem;
+  font-style: italic;
+  color: var(--exam-muted);
 }
 
 .tfng-block,

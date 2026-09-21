@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import cors from "cors";
 import express from "express";
 import { ProxyAgent, setGlobalDispatcher } from "undici";
-import { safeParseExamDocument, type ExamDocument } from "@ielts/schema";
+import { safeParseExamDocument, ensureReadingPassageFigures, type ExamDocument } from "@ielts/schema";
 import {
   parseViaOpenAICompatible,
   parseViaPlaywright,
@@ -545,7 +545,7 @@ async function runJob(
         `Model JSON failed schema validation: ${issue}. Try Convert again, or use clearer screenshots.`,
       );
     }
-    const exam = parsed.data;
+    const exam = ensureReadingPassageFigures(parsed.data, images.length);
     exam.sourceImages = images;
     job.exam = exam;
     touch(

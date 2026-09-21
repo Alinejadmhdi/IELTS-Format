@@ -13,6 +13,9 @@ type Props = {
   highlights: HighlightRange[];
   onAddHighlight: (h: Omit<HighlightRange, "id">) => void;
   marks?: Record<string, MarkResult> | null;
+  /** When true, the same letter may answer multiple questions (matching information). */
+  allowReuseLetters?: boolean;
+  hint?: string;
 };
 
 function markClass(mark?: MarkResult | null): string {
@@ -31,6 +34,8 @@ export function MatchingFromBox({
   highlights,
   onAddHighlight,
   marks,
+  allowReuseLetters = false,
+  hint,
 }: Props) {
   const [dragging, setDragging] = useState<string | null>(null);
   const [picked, setPicked] = useState<string | null>(null);
@@ -56,13 +61,15 @@ export function MatchingFromBox({
   function assign(questionNumber: number, letter: string) {
     const value = normalize(letter);
     if (!value) return;
-    for (const item of block.items) {
-      const key = answerKey(item.questionNumber);
-      if (
-        (answers[key] ?? "").trim().toUpperCase() === value &&
-        item.questionNumber !== questionNumber
-      ) {
-        onAnswer(item.questionNumber, "");
+    if (!allowReuseLetters) {
+      for (const item of block.items) {
+        const key = answerKey(item.questionNumber);
+        if (
+          (answers[key] ?? "").trim().toUpperCase() === value &&
+          item.questionNumber !== questionNumber
+        ) {
+          onAnswer(item.questionNumber, "");
+        }
       }
     }
     onAnswer(questionNumber, value);
@@ -94,14 +101,22 @@ export function MatchingFromBox({
           />
         )}
         <p className="dnd-hint muted">
-          Drag a letter onto a question, or tap a letter then a slot.
+          {hint ??
+            "Drag a letter onto a question, or tap a letter then a slot."}
         </p>
         <ul className="dnd-options">
           {block.options.map((o) => {
             const letter = normalize(o.letter);
-            const usedOn = usedLetters.get(letter);
+            const usedOn = allowReuseLetters
+              ? undefined
+              : usedLetters.get(letter);
             const isActive =
               dragging === letter || picked === letter;
+            const label =
+              o.text &&
+              !new RegExp(`^paragraph\\s*${letter}$`, "i").test(o.text.trim())
+                ? o.text
+                : "";
             return (
               <li key={o.letter}>
                 <button
@@ -122,10 +137,10 @@ export function MatchingFromBox({
                     setPicked((prev) => (prev === letter ? null : letter))
                   }
                   aria-pressed={picked === letter}
-                  aria-label={`${letter} ${o.text}${usedOn ? `, used on question ${usedOn}` : ""}`}
+                  aria-label={`${letter} ${label}${usedOn ? `, used on question ${usedOn}` : ""}`}
                 >
                   <strong>{o.letter}</strong>
-                  <span>{o.text}</span>
+                  {label ? <span>{label}</span> : null}
                   {usedOn != null && (
                     <em className="used-badge" title={`Used on Q${usedOn}`}>
                       →{usedOn}

@@ -39,15 +39,15 @@ export function BlockRenderer({
   marks,
   matchingHeadings = [],
 }: Props) {
-  if (block.needsReview) {
-    return (
-      <div className="needs-review">
-        <p>This block may need manual review after conversion.</p>
-      </div>
-    );
-  }
-
   const textProps = { highlights, onAddHighlight, marks };
+  const reviewBanner = block.needsReview ? (
+    <div className="needs-review" role="status">
+      <p>
+        This block may need a re-convert — some text looked incomplete after
+        parsing.
+      </p>
+    </div>
+  ) : null;
 
   switch (block.type) {
     case "form":
@@ -305,6 +305,44 @@ export function BlockRenderer({
         />
       );
 
+    case "matchingInformation": {
+      const paragraphs =
+        block.paragraphs && block.paragraphs.length >= 2
+          ? block.paragraphs
+          : Array.from({ length: 10 }, (_, i) => {
+              const letter = String.fromCharCode(65 + i);
+              return { letter, text: `Paragraph ${letter}` };
+            });
+      return (
+        <div className="matching-information-block">
+          {reviewBanner}
+          <MatchingFromBox
+            block={{
+              type: "matchingFromBox",
+              boxTitle: block.boxTitle ?? "Paragraphs",
+              options: paragraphs,
+              itemsTitle: block.itemsTitle,
+              items: block.items.map((item) => ({
+                ...item,
+                text:
+                  item.text?.trim() ||
+                  `(Statement ${item.questionNumber} — re-convert to restore text)`,
+              })),
+              needsReview: block.needsReview,
+            }}
+            blockKey={blockKey}
+            answers={answers}
+            onAnswer={onAnswer}
+            highlights={highlights}
+            onAddHighlight={onAddHighlight}
+            marks={marks}
+            allowReuseLetters
+            hint="Drag a paragraph letter onto each statement, or tap a letter then a question."
+          />
+        </div>
+      );
+    }
+
     case "matchingHeadings":
       return <MatchingHeadingsList block={block} />;
 
@@ -351,7 +389,18 @@ export function BlockRenderer({
       );
 
     case "passage": {
-      const fig = resolveImage(block.figure);
+      const figList = [
+        ...(block.figures ?? []),
+        ...(block.figure ? [block.figure] : []),
+      ].filter((f, i, arr) => {
+        const key = f.imageDataUrl ?? `i:${f.sourceIndex ?? -1}`;
+        return arr.findIndex((x) => (x.imageDataUrl ?? `i:${x.sourceIndex ?? -1}`) === key) === i;
+      });
+      const footnoteLines = [
+        ...(block.footnotes ?? []),
+        ...(block.footnote ? [block.footnote] : []),
+      ];
+
       return (
         <article className="passage-block">
           {block.title && (
@@ -360,6 +409,16 @@ export function BlockRenderer({
               text={block.title}
               {...textProps}
               as="h2"
+              className="passage-title"
+            />
+          )}
+          {block.subtitle && (
+            <HighlightableText
+              blockKey={`${blockKey}-pass-subtitle`}
+              text={block.subtitle}
+              {...textProps}
+              as="h3"
+              className="passage-subtitle"
             />
           )}
           {block.guidance && (
@@ -371,11 +430,24 @@ export function BlockRenderer({
               className="passage-guidance"
             />
           )}
-          {fig && (
-            <figure className="passage-figure">
-              <img src={fig} alt={block.figure?.caption ?? "Passage figure"} />
-              {block.figure?.caption && <figcaption>{block.figure.caption}</figcaption>}
-            </figure>
+          {figList.length > 0 && (
+            <div className="passage-figures">
+              {figList.map((figRef, fi) => {
+                const src = resolveImage(figRef);
+                if (!src) return null;
+                return (
+                  <figure key={fi} className="passage-figure">
+                    <img
+                      src={src}
+                      alt={figRef.caption ?? block.title ?? "Passage illustration"}
+                    />
+                    {figRef.caption && (
+                      <figcaption>{figRef.caption}</figcaption>
+                    )}
+                  </figure>
+                );
+              })}
+            </div>
           )}
           <div className="passage-body">
             {block.paragraphs.map((p, i) => (
@@ -396,6 +468,20 @@ export function BlockRenderer({
               </div>
             ))}
           </div>
+          {footnoteLines.length > 0 && (
+            <footer className="passage-footnotes">
+              {footnoteLines.map((line, i) => (
+                <HighlightableText
+                  key={i}
+                  blockKey={`${blockKey}-fn-${i}`}
+                  text={line}
+                  {...textProps}
+                  as="p"
+                  className="passage-footnote"
+                />
+              ))}
+            </footer>
+          )}
         </article>
       );
     }

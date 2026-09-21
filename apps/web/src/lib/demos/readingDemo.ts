@@ -19,15 +19,19 @@ export const readingDemo: ExamDocument = {
           blocks: [
             {
               type: "passage",
+              title: "The Bronze Age of China",
+              subtitle: "Ritual vessels, jade, and the taotie motif",
               guidance:
                 "You should spend about 20 minutes on Questions 1–13, which are based on the Reading Passage below.",
-              figure: { sourceIndex: 0, caption: "Taotie mask" },
+              figure: { sourceIndex: 0, caption: "Taotie mask on a bronze ritual vessel" },
               paragraphs: [
                 "The Bronze Age in China began around 2000 B.C. and brought major changes in society, including the growth of towns and cities and more complex social order. Ritual and ceremony became central, and bronze objects played an important role in social and religious life.",
                 "The Yellow River valley in Henan Province was a centre of advanced culture. The Shang dynasty (ca. 1600–1050 B.C.) developed a powerful state; later the Zhou people conquered the Shang. After the Western Zhou period came the Eastern Zhou, including the Spring and Autumn and Warring States eras, ending with unification under the Qin in 221 B.C.",
                 "The Shang and Zhou eras are often called the Bronze Age of China. Bronze — an alloy of copper and tin — was used for weapons, chariot fittings, and ritual vessels. The taotie is a frontal animal-like mask with prominent eyes in high relief, a nose, jaws, fangs, horns, ears, and eyebrows. Other motifs include dragons, birds, and geometric patterns.",
                 "Jade was also important in late Neolithic and Bronze Age cultures, used in burial rites, sacrificial offerings, and formal ceremonies. The quality and style of jade carving changed over time.",
               ],
+              footnote:
+                "Adapted from museum exhibition notes on Shang and Zhou ritual art.",
             },
           ],
         },

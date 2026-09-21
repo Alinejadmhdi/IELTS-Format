@@ -68,6 +68,16 @@ You can open the same panel anytime with the top-bar **API key** button, or via 
 3. Type answers in the boxed blanks; select text to highlight
 4. Paste an answer key on the right → **Check answers**
    - Supports glued keys (`14 A15 C`) and any-order groups (`38-40 B, C, F`)
+   - Lines like `Question 13` are treated as headers, not answers
+
+**Reading papers**
+
+- Passage on the left, questions on the right (drag the divider to resize)
+- Toolbar: **Highlight** (default) or **Copy** — copy mode keeps existing highlights
+- **Ctrl+Z** / **Ctrl+Y** undo/redo highlights (when not typing in a field)
+- Passage title, subtitle, illustration + caption, and footnotes are kept when the model finds them
+- “Which paragraph contains the following information?” uses paragraph-letter matching on the questions side (not heading drop-zones in the passage)
+- Under the exam: **Paragraph notes** + **Export paragraph notes**
 
 **Sample Listening** / **Sample Reading** work offline without the API.
 
@@ -111,7 +121,9 @@ npm run web      # Vite UI on http://127.0.0.1:5173/  (proxies /api → bridge)
 |---|---|
 | Setup panel / **API DOWN** | Use **API key** and paste a fresh Gemini key |
 | Port in use | Set `IELTS_PORT=8890` in `.env` |
-| Convert fails with high demand | Wait — the bridge retries automatically |
+| Convert fails with high demand | Wait — the bridge retries / switches models automatically |
+| Empty response from vision API | Retry convert; bridge treats blank Gemini STOP as a flake and switches backup |
+| Matching info shows “Paragraph A–J” only | Re-convert after updating — that task is not matching headings |
 | Samples work, convert fails | Check **API OK** after Recheck; confirm proxy if needed |
 
 ---

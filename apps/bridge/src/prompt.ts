@@ -13,13 +13,19 @@ Block "type" values and shapes:
 - multipleChoice: {type,title?,questions:[{questionNumber,stem,options:[{letter,text}]}],decorativeImage?:{sourceIndex,crop?}}
 - matchingFromBox: {type,boxTitle?,options:[{letter,text}],itemsTitle?,items:[{questionNumber,text}]}
 - matchingHeadings: {type,listTitle?,headings:[{id,text}],slots:[{questionNumber,beforeParagraph:number}]}
+- matchingInformation: {type,boxTitle?,paragraphs:[{letter,text}],itemsTitle?,items:[{questionNumber,text}]}
 - multiSelectLetters: {type,selectCount,prompt,options:[{letter,text}],questionNumbers:number[]}
-- passage: {type,title?,guidance?,paragraphs:string[],figure?:{sourceIndex,crop?,caption?}}
+- passage: {type,title?,subtitle?,guidance?,paragraphs:string[],figure?:{sourceIndex,crop?,caption?},figures?:[{sourceIndex,crop?,caption?}],footnote?,footnotes?:string[]}
 - trueFalseNotGiven|yesNoNotGiven: {type,key:[{value,meaning}],statements:[{questionNumber,text}]}
 - classify: {type,prompt?,categories:[{letter,text}],listTitle?,items:[{questionNumber,text}]}
 
 TextPart: {"kind":"text","text":string} OR {"kind":"answer","questionNumber":number,"maxWords"?:number,"allowNumber"?:boolean,"width"?:"sm"|"md"|"lg"}
 
-Rules: preserve headings/instructions/word limits; replace blanks with answer parts (never invent Q numbers); Example rows are not live answers; static filled lines stay text; for visuals set sourceIndex 0-based; matchingFromBox keeps options+items; matchingHeadings puts List of Headings on the questions side and numbered gaps in the passage (beforeParagraph = 0-based paragraph index); Choose N letters => multiSelectLetters; tables keep inline answers; Reading = passage + questions (TFNG/headings/summary/MCQ) for a computer split view; unsure => needsReview:true; STRICT JSON only.`;
+CRITICAL — do not confuse these Reading match tasks:
+1) matchingInformation — paper says "Which paragraph contains the following information?" (often "paragraphs A–J"). items[] = the NUMBERED INFORMATION STATEMENTS exactly as printed (e.g. "the places where olive trees were supposedly grown first…"). paragraphs[] = answer letters A,B,C… Answers stay on the QUESTIONS side. NEVER put drop zones in the passage. NEVER use matchingHeadings for this.
+2) matchingHeadings — paper says "Choose the correct heading for each paragraph from the list of headings" with roman/numeral heading phrases (i, ii, iii / i–x). headings[] = those heading phrases. slots[] go in the passage (beforeParagraph). NEVER invent headings that are only "Paragraph A".
+3) matchingFromBox — Listening/Reading "choose from a box of options" where options have distinctive text, not bare paragraph letters for matching-information.
+
+Other rules: preserve headings/instructions/word limits; replace blanks with answer parts (never invent Q numbers); Example rows are not live answers; static filled lines stay text; for visuals set sourceIndex 0-based; Choose N letters => multiSelectLetters; tables keep inline answers; Reading = passage + questions for a computer split view; for reading passages ALWAYS include title and subtitle when visible, any illustration/photo/diagram as figure/figures with caption, and footnote/source lines; unsure => needsReview:true; STRICT JSON only.`;
 
 export const IELTS_PARSE_PROMPT = IELTS_PARSE_PROMPT_CHAT;

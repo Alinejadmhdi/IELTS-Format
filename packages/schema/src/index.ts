@@ -175,6 +175,26 @@ export const MatchingHeadingsBlockSchema = z.object({
   needsReview: z.boolean().optional(),
 });
 
+/**
+ * "Which paragraph contains the following information?"
+ * Numbered statements on the questions side; answers are paragraph letters A–J.
+ * Do NOT confuse with matchingHeadings (List of Headings / roman numerals).
+ */
+export const MatchingInformationBlockSchema = z.object({
+  type: z.literal("matchingInformation"),
+  boxTitle: z.string().optional(),
+  /** Paragraph letters available as answers, e.g. A–J. */
+  paragraphs: z.array(OptionSchema).optional(),
+  itemsTitle: z.string().optional(),
+  items: z.array(
+    z.object({
+      questionNumber: z.coerce.number(),
+      text: z.string(),
+    }),
+  ),
+  needsReview: z.boolean().optional(),
+});
+
 export const MultiSelectLettersBlockSchema = z.object({
   type: z.literal("multiSelectLetters"),
   selectCount: z.coerce.number(),
@@ -186,10 +206,20 @@ export const MultiSelectLettersBlockSchema = z.object({
 
 export const PassageBlockSchema = z.object({
   type: z.literal("passage"),
+  /** Main passage title (e.g. article headline). */
   title: z.string().optional(),
+  /** Line under the title (byline, section label, etc.). */
+  subtitle: z.string().optional(),
   guidance: z.string().optional(),
   paragraphs: z.array(z.string()),
+  /** Primary illustration / photo in the passage. */
   figure: ImageRefSchema.optional(),
+  /** Extra illustrations (diagrams, photos) with captions. */
+  figures: z.array(ImageRefSchema).optional(),
+  /** Single footnote / source line under the passage. */
+  footnote: z.string().optional(),
+  /** Multiple footnotes when the paper has several. */
+  footnotes: z.array(z.string()).optional(),
   needsReview: z.boolean().optional(),
 });
 
@@ -240,6 +270,7 @@ export const BlockSchema = z.discriminatedUnion("type", [
   MultipleChoiceBlockSchema,
   MatchingFromBoxBlockSchema,
   MatchingHeadingsBlockSchema,
+  MatchingInformationBlockSchema,
   MultiSelectLettersBlockSchema,
   PassageBlockSchema,
   TfngBlockSchema,
@@ -275,6 +306,9 @@ export type FormRow = z.infer<typeof FormRowSchema>;
 export type Block = z.infer<typeof BlockSchema>;
 export type MatchingFromBoxBlock = z.infer<typeof MatchingFromBoxBlockSchema>;
 export type MatchingHeadingsBlock = z.infer<typeof MatchingHeadingsBlockSchema>;
+export type MatchingInformationBlock = z.infer<
+  typeof MatchingInformationBlockSchema
+>;
 export type QuestionGroup = z.infer<typeof QuestionGroupSchema>;
 export type Section = z.infer<typeof SectionSchema>;
 export type ExamDocument = z.infer<typeof ExamDocumentSchema>;
@@ -311,7 +345,193 @@ function normalizeExamInput(data: unknown): unknown {
   } else if (!cleaned.module) {
     cleaned.module = "unknown";
   }
+
+  // Passage field aliases + misclassified matching-information repair
+  const sections = cleaned.sections;
+  if (Array.isArray(sections)) {
+    for (const section of sections) {
+      if (!section || typeof section !== "object") continue;
+      const groups = (section as Record<string, unknown>).groups;
+      if (!Array.isArray(groups)) continue;
+      for (const group of groups) {
+        if (!group || typeof group !== "object") continue;
+        const g = group as Record<string, unknown>;
+        const instr = Array.isArray(g.instructions)
+          ? g.instructions.join(" ").toLowerCase()
+          : "";
+        const heading = typeof g.heading === "string" ? g.heading.toLowerCase() : "";
+        const looksLikeMatchInfo =
+          /which\s+paragraph\s+contains|contains\s+the\s+following\s+information/i.test(
+            `${instr} ${heading}`,
+          );
+        const blocks = g.blocks;
+        if (!Array.isArray(blocks)) continue;
+        for (let bi = 0; bi < blocks.length; bi++) {
+          const block = blocks[bi];
+          if (!block || typeof block !== "object") continue;
+          const b = block as Record<string, unknown>;
+
+          if (b.type === "passage") {
+            if (!b.subtitle && typeof b.subheading === "string") {
+              b.subtitle = b.subheading;
+            }
+            if (!b.subtitle && typeof b.subTitle === "string") {
+              b.subtitle = b.subTitle;
+            }
+            if (!b.footnote && typeof b.footernote === "string") {
+              b.footnote = b.footernote;
+            }
+            if (!b.footnote && typeof b.footerNote === "string") {
+              b.footnote = b.footerNote;
+            }
+            if (!b.figures && Array.isArray(b.illustrations)) {
+              b.figures = b.illustrations;
+            }
+            if (
+              !b.figure &&
+              b.illustration &&
+              typeof b.illustration === "object"
+            ) {
+              b.figure = b.illustration;
+            }
+            continue;
+          }
+
+          // Models often emit matchingHeadings for "Which paragraph contains…"
+          // with headings = Paragraph A–J. Convert to matchingInformation.
+          if (b.type === "matchingHeadings" || b.type === "matchingInformation") {
+            const headings = Array.isArray(b.headings) ? b.headings : [];
+            const paraLike =
+              headings.length >= 2 &&
+              headings.every((h) => {
+                if (!h || typeof h !== "object") return false;
+                const t = String(
+                  (h as Record<string, unknown>).text ??
+                    (h as Record<string, unknown>).id ??
+                    "",
+                ).trim();
+                return /^(paragraph\s+)?[A-J]$/i.test(t);
+              });
+
+            if (
+              b.type === "matchingHeadings" &&
+              (paraLike || looksLikeMatchInfo)
+            ) {
+              const paragraphs = (paraLike ? headings : []).map((h) => {
+                const row = h as Record<string, unknown>;
+                const raw = String(row.text ?? row.id ?? "").trim();
+                const letter =
+                  raw.match(/\b([A-J])\b/i)?.[1]?.toUpperCase() ?? "A";
+                return { letter, text: `Paragraph ${letter}` };
+              });
+              const fromItems = Array.isArray(b.items)
+                ? b.items
+                : Array.isArray(b.statements)
+                  ? b.statements
+                  : null;
+              const fromSlots = Array.isArray(b.slots)
+                ? b.slots.map((s) => {
+                    const row = s as Record<string, unknown>;
+                    return {
+                      questionNumber: Number(row.questionNumber),
+                      text:
+                        typeof row.text === "string"
+                          ? row.text
+                          : typeof row.information === "string"
+                            ? row.information
+                            : "",
+                    };
+                  })
+                : [];
+              const items = (fromItems ?? fromSlots).filter(
+                (it) =>
+                  it &&
+                  typeof it === "object" &&
+                  Number.isFinite(Number((it as { questionNumber?: number }).questionNumber)),
+              );
+              blocks[bi] = {
+                type: "matchingInformation",
+                boxTitle:
+                  typeof b.listTitle === "string"
+                    ? b.listTitle
+                    : typeof b.boxTitle === "string"
+                      ? b.boxTitle
+                      : "Paragraphs",
+                paragraphs:
+                  paragraphs.length >= 2
+                    ? paragraphs
+                    : defaultParagraphOptions("A", "J"),
+                items,
+                needsReview:
+                  items.some(
+                    (it) =>
+                      !(it as { text?: string }).text ||
+                      !(it as { text?: string }).text!.trim(),
+                  ) || undefined,
+              };
+              continue;
+            }
+
+            if (b.type === "matchingInformation") {
+              if (!Array.isArray(b.paragraphs) || b.paragraphs.length < 2) {
+                b.paragraphs = defaultParagraphOptions("A", "J");
+              }
+              if (!Array.isArray(b.items) && Array.isArray(b.statements)) {
+                b.items = b.statements;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
   return cleaned;
+}
+
+function defaultParagraphOptions(from: string, to: string) {
+  const a = from.toUpperCase().charCodeAt(0);
+  const b = to.toUpperCase().charCodeAt(0);
+  const out: Array<{ letter: string; text: string }> = [];
+  for (let c = Math.min(a, b); c <= Math.max(a, b); c++) {
+    const letter = String.fromCharCode(c);
+    out.push({ letter, text: `Paragraph ${letter}` });
+  }
+  return out;
+}
+
+/**
+ * Ensure reading passages keep a visible image when the model omitted figure
+ * but screenshots were uploaded (first image is usually the passage page).
+ */
+export function ensureReadingPassageFigures(
+  exam: ExamDocument,
+  imageCount: number,
+): ExamDocument {
+  if (exam.module !== "reading" || imageCount <= 0) return exam;
+  let changed = false;
+  const sections = exam.sections.map((section) => ({
+    ...section,
+    groups: section.groups.map((group) => ({
+      ...group,
+      blocks: group.blocks.map((block) => {
+        if (block.type !== "passage") return block;
+        const hasFig =
+          !!block.figure ||
+          (Array.isArray(block.figures) && block.figures.length > 0);
+        if (hasFig) return block;
+        changed = true;
+        return {
+          ...block,
+          figure: {
+            sourceIndex: 0,
+            caption: block.title ? undefined : "Reading passage",
+          },
+        };
+      }),
+    })),
+  }));
+  return changed ? { ...exam, sections } : exam;
 }
 
 export function parseExamDocument(data: unknown): ExamDocument {
